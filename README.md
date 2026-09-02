@@ -13,6 +13,17 @@ The **Start** button dispatches a compute shader that applies a configurable
 box blur to the current triangle texture. Its result appears in the independent
 **Blur Output** window and remains unchanged until the next dispatch.
 
+## Profiler
+
+The persistent **Profiler** window reports CPU and GPU timings for the complete
+frame, graphics pass, compute blur, and ImGui pass. Each metric keeps the latest
+120 samples and exposes current, average, minimum, maximum, and p95 values.
+
+GPU measurements use Vulkan timestamp queries and are resolved after the frame
+fence without stalling the command stream. The panel reports when timestamps
+are unsupported. CPU and GPU histories can be inspected independently from the
+metric selector.
+
 ## Build
 
 Requirements: CMake 3.24+, a C++20 compiler, Vulkan 1.3 development files,

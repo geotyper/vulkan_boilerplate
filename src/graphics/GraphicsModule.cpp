@@ -2,6 +2,7 @@
 
 #include "vkexp/core/VulkanContext.hpp"
 #include "vkexp/presets/Preset.hpp"
+#include "vkexp/profiling/Profiler.hpp"
 
 #include <array>
 #include <algorithm>
@@ -227,6 +228,7 @@ void GraphicsModule::destroyRenderTarget(AppContext& context) {
 }
 
 void GraphicsModule::onUpdate(AppContext& context, const FrameInfo&) {
+    auto cpuScope = context.profiler.cpu().scope(ProfileMetric::Graphics);
     const VkExtent2D requested{
         std::clamp(context.viewport.requestedWidth, 64U, 4096U),
         std::clamp(context.viewport.requestedHeight, 64U, 4096U),
@@ -241,6 +243,9 @@ void GraphicsModule::onUpdate(AppContext& context, const FrameInfo&) {
 }
 
 void GraphicsModule::onRender(AppContext& context, const FrameInfo&) {
+    auto cpuScope = context.profiler.cpu().scope(ProfileMetric::Graphics);
+    auto gpuScope =
+        context.profiler.gpu().scope(context.vulkan.commandBuffer(), ProfileMetric::Graphics);
     const VkCommandBuffer commands = context.vulkan.commandBuffer();
     VkImageMemoryBarrier2 toAttachment{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
     toAttachment.srcStageMask = targetLayout_ == VK_IMAGE_LAYOUT_UNDEFINED

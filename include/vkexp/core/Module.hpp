@@ -8,6 +8,7 @@ namespace vkexp {
 
 class VulkanContext;
 class Window;
+class Profiler;
 struct Preset;
 
 struct FrameInfo {
@@ -42,6 +43,7 @@ struct AppContext {
     Preset& preset;
     RenderViewport& viewport;
     ComputeOutput& blur;
+    Profiler& profiler;
 };
 
 class Module {

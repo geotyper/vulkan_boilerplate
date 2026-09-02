@@ -2,6 +2,7 @@
 
 #include "vkexp/core/VulkanContext.hpp"
 #include "vkexp/presets/Preset.hpp"
+#include "vkexp/profiling/Profiler.hpp"
 
 #include <array>
 #include <cstddef>
@@ -247,6 +248,9 @@ void ComputeModule::onRender(AppContext& context, const FrameInfo&) {
         return;
     }
 
+    auto cpuScope = context.profiler.cpu().scope(ProfileMetric::ComputeBlur);
+    auto gpuScope =
+        context.profiler.gpu().scope(context.vulkan.commandBuffer(), ProfileMetric::ComputeBlur);
     const VkCommandBuffer commands = context.vulkan.commandBuffer();
     std::array<VkImageMemoryBarrier2, 2> toCompute{};
     for (auto& barrier : toCompute) {

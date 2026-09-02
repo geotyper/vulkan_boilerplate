@@ -13,8 +13,9 @@ Application
   -> Window
   -> VulkanContext
   -> PresetRegistry
-  -> ComputeModule
+  -> Profiler
   -> GraphicsModule
+  -> ComputeModule
   -> ImGuiModule
 ```
 
@@ -42,6 +43,8 @@ the ImGui module displays it without owning the renderer.
 - [x] Render experiments into a resizable ImGui viewport texture.
 - [x] Run a button-triggered compute blur into a second viewport texture.
 - [x] Persist ImGui window layout and load the native window size from a preset.
+- [x] Add scoped CPU/GPU profiling, timestamp queries, rolling statistics, and
+      a persistent profiler panel.
 - [ ] Add shader hot reload and runtime validation output.
 - [ ] Add reusable descriptor and resource allocators.
 - [ ] Add off-screen compute-to-graphics image experiments.
@@ -51,6 +54,7 @@ the ImGui module displays it without owning the renderer.
 
 ```text
 poll events -> begin frame -> update modules -> acquire image
+            -> begin timestamp scopes
             -> render off-screen viewport
             -> optionally dispatch compute blur
             -> compose ImGui over background -> submit -> present
@@ -80,6 +84,7 @@ include/vkexp/
   compute/    compute pipeline module
   ui/         ImGui module
   presets/    preset definitions and registry
+  profiling/  CPU/GPU scopes, timing history, profiler panel
 src/          implementation files mirroring include/vkexp
 shaders/      GLSL shader experiments
 ```
@@ -88,4 +93,4 @@ shaders/      GLSL shader experiments
 
 CMake finds Vulkan and obtains GLFW, GLM, and Dear ImGui with `FetchContent`.
 Validation layers are enabled in debug builds when available. Optional shader
-targets use `glslc` when it is installed.
+targets use `glslangValidator`.

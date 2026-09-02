@@ -72,6 +72,9 @@ add_executable(vulkan_boilerplate
     src/compute/ComputeModule.cpp
     src/ui/ImGuiModule.cpp
     src/presets/PresetRegistry.cpp
+    src/profiling/CpuProfiler.cpp
+    src/profiling/GpuProfiler.cpp
+    src/profiling/ProfilerPanel.cpp
 )
 add_dependencies(vulkan_boilerplate vkexp_shaders)
 

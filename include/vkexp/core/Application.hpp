@@ -4,6 +4,7 @@
 #include "vkexp/core/VulkanContext.hpp"
 #include "vkexp/core/Window.hpp"
 #include "vkexp/presets/Preset.hpp"
+#include "vkexp/profiling/Profiler.hpp"
 
 #include <memory>
 #include <vector>
@@ -21,6 +22,7 @@ private:
     Preset preset_;
     RenderViewport viewport_;
     ComputeOutput blur_;
+    Profiler profiler_;
     AppContext context_;
     std::vector<std::unique_ptr<Module>> modules_;
 };

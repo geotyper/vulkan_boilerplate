@@ -3,6 +3,7 @@
 #include "vkexp/core/VulkanContext.hpp"
 #include "vkexp/core/Window.hpp"
 #include "vkexp/presets/Preset.hpp"
+#include "vkexp/profiling/Profiler.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -94,6 +95,7 @@ void ImGuiModule::syncViewportTextures(AppContext& context) {
 }
 
 void ImGuiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
+    auto cpuScope = context.profiler.cpu().scope(ProfileMetric::ImGui);
     syncViewportTextures(context);
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -156,10 +158,14 @@ void ImGuiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
         ImGui::TextDisabled("Press Start to run the compute blur.");
     }
     ImGui::End();
+    profilerPanel_.draw(context.profiler);
     ImGui::Render();
 }
 
 void ImGuiModule::onRender(AppContext& context, const FrameInfo&) {
+    auto cpuScope = context.profiler.cpu().scope(ProfileMetric::ImGui);
+    auto gpuScope =
+        context.profiler.gpu().scope(context.vulkan.commandBuffer(), ProfileMetric::ImGui);
     constexpr VkClearColorValue background{{0.008F, 0.011F, 0.018F, 1.0F}};
     context.vulkan.beginColorPass(VK_ATTACHMENT_LOAD_OP_CLEAR, background);
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), context.vulkan.commandBuffer());

@@ -1,0 +1,108 @@
+#include "vkexp/profiling/ProfilerPanel.hpp"
+
+#include "vkexp/profiling/Profiler.hpp"
+
+#include <imgui.h>
+
+#include <array>
+#include <cfloat>
+#include <cstdio>
+#include <span>
+
+namespace vkexp {
+namespace {
+
+template <typename Backend>
+void drawStatisticsTable(const char* label, const Backend& backend) {
+    if (!ImGui::BeginTable(label, 6,
+                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                               ImGuiTableFlags_SizingStretchProp)) {
+        return;
+    }
+
+    ImGui::TableSetupColumn("Metric");
+    ImGui::TableSetupColumn("Current");
+    ImGui::TableSetupColumn("Average");
+    ImGui::TableSetupColumn("Minimum");
+    ImGui::TableSetupColumn("Maximum");
+    ImGui::TableSetupColumn("P95");
+    ImGui::TableHeadersRow();
+
+    for (std::size_t index = 0; index < profileMetricCount; ++index) {
+        const auto metric = static_cast<ProfileMetric>(index);
+        const TimingStatistics statistics = backend.series(metric).statistics();
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextUnformatted(profileMetricNames[index].data());
+        for (int column = 1; column < 6; ++column) {
+            ImGui::TableSetColumnIndex(column);
+            if (statistics.sampleCount == 0) {
+                ImGui::TextUnformatted("-");
+                continue;
+            }
+            const std::array values{
+                statistics.currentMs,
+                statistics.averageMs,
+                statistics.minimumMs,
+                statistics.maximumMs,
+                statistics.percentile95Ms,
+            };
+            ImGui::Text("%.3f", values[static_cast<std::size_t>(column - 1)]);
+        }
+    }
+    ImGui::EndTable();
+}
+
+void drawHistoryPlot(const char* label, const TimingSeries& series) {
+    const std::span<const float> values = series.values();
+    if (values.empty()) {
+        ImGui::TextDisabled("%s: no samples", label);
+        return;
+    }
+
+    const TimingStatistics statistics = series.statistics();
+    std::array<char, 64> overlay{};
+    std::snprintf(overlay.data(), overlay.size(), "current %.3f ms | p95 %.3f ms",
+                  statistics.currentMs, statistics.percentile95Ms);
+    ImGui::PlotLines(label, values.data(), static_cast<int>(values.size()), 0,
+                     overlay.data(), FLT_MAX, FLT_MAX, ImVec2(0.0F, 80.0F));
+}
+
+} // namespace
+
+void ProfilerPanel::draw(const Profiler& profiler) {
+    ImGui::SetNextWindowPos(ImVec2(20.0F, 290.0F), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(760.0F, 400.0F), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Profiler");
+
+    if (ImGui::CollapsingHeader("CPU timings", ImGuiTreeNodeFlags_DefaultOpen)) {
+        drawStatisticsTable("CPU statistics", profiler.cpu());
+    }
+
+    if (ImGui::CollapsingHeader("GPU timings", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (profiler.gpu().supported()) {
+            drawStatisticsTable("GPU statistics", profiler.gpu());
+        } else {
+            ImGui::TextDisabled("Timestamp queries are unavailable on this device.");
+        }
+    }
+
+    constexpr std::array metricLabels{
+        "Frame",
+        "Graphics",
+        "Compute Blur",
+        "ImGui",
+    };
+    ImGui::SeparatorText("120-sample history");
+    ImGui::Combo("Metric", &selectedMetric_, metricLabels.data(),
+                 static_cast<int>(metricLabels.size()));
+    const auto metric = static_cast<ProfileMetric>(selectedMetric_);
+    drawHistoryPlot("CPU history", profiler.cpu().series(metric));
+    if (profiler.gpu().supported()) {
+        drawHistoryPlot("GPU history", profiler.gpu().series(metric));
+    }
+
+    ImGui::End();
+}
+
+} // namespace vkexp

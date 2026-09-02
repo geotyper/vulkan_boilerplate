@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vkexp/core/Module.hpp"
+#include "vkexp/profiling/ProfilerPanel.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -25,6 +26,7 @@ private:
     std::uint64_t viewportGeneration_{};
     std::uint64_t blurGeneration_{};
     std::string iniPath_;
+    ProfilerPanel profilerPanel_;
 };
 
 } // namespace vkexp
