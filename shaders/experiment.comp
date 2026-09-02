@@ -1,0 +1,11 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    // This intentionally resource-free shader is a safe starting point. Add a
+    // descriptor set and storage resources for each compute experiment.
+    if (gl_GlobalInvocationID.x == 0) {
+        // Keep a valid entry point without imposing an initial resource layout.
+    }
+}
