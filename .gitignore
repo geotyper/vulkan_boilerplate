@@ -1,9 +1,23 @@
 /build/
+/build-*/
 /cmake-build-*/
+/.qtc_clangd/
 /.cache/
 /.idea/
 /.vscode/
 compile_commands.json
+
+# Qt Creator user and session settings
+CMakeLists.txt.user
+CMakeLists.txt.user.*
+*.creator.user
+*.creator.user.*
+*.pro.user
+*.pro.user.*
+*.qmlproject.user
+*.qmlproject.user.*
+*.autosave
+
 *.user
 *.swp
 
