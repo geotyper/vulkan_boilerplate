@@ -19,6 +19,8 @@ private:
     Window window_;
     VulkanContext vulkan_;
     Preset preset_;
+    RenderViewport viewport_;
+    ComputeOutput blur_;
     AppContext context_;
     std::vector<std::unique_ptr<Module>> modules_;
 };

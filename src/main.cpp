@@ -19,7 +19,11 @@ int main(const int argc, char** argv) {
     try {
         vkexp::PresetRegistry presets;
         std::string presetName = "mixed";
+#ifdef VKEXP_ENABLE_VALIDATION
         bool validationEnabled = true;
+#else
+        bool validationEnabled = false;
+#endif
 
         for (int i = 1; i < argc; ++i) {
             const std::string_view argument = argv[i];
@@ -43,6 +47,7 @@ int main(const int argc, char** argv) {
             }
         }
 
+        presets.loadWindowPreset(VKEXP_WINDOW_PRESET);
         vkexp::Application app{presets.require(presetName), validationEnabled};
         return app.run();
     } catch (const std::exception& error) {

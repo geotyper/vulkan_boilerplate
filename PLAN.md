@@ -27,6 +27,8 @@ Every runtime subsystem implements the `Module` lifecycle:
 
 The application owns modules, guarantees their lifetime, and provides shared
 state through `AppContext`. Modules do not own the application or one another.
+The graphics module publishes an off-screen image through `RenderViewport`;
+the ImGui module displays it without owning the renderer.
 
 ## Initial milestones
 
@@ -37,6 +39,9 @@ state through `AppContext`. Modules do not own the application or one another.
 - [x] Separate graphics and compute pipeline modules.
 - [x] Add an ImGui module with Vulkan/GLFW backends.
 - [x] Add named startup presets selected with `--preset`.
+- [x] Render experiments into a resizable ImGui viewport texture.
+- [x] Run a button-triggered compute blur into a second viewport texture.
+- [x] Persist ImGui window layout and load the native window size from a preset.
 - [ ] Add shader hot reload and runtime validation output.
 - [ ] Add reusable descriptor and resource allocators.
 - [ ] Add off-screen compute-to-graphics image experiments.
@@ -46,8 +51,9 @@ state through `AppContext`. Modules do not own the application or one another.
 
 ```text
 poll events -> begin frame -> update modules -> acquire image
-            -> record compute -> record graphics -> draw ImGui
-            -> submit -> present
+            -> render off-screen viewport
+            -> optionally dispatch compute blur
+            -> compose ImGui over background -> submit -> present
 ```
 
 The first scaffold keeps GPU recording hooks explicit while avoiding a large

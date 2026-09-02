@@ -40,7 +40,9 @@ public:
     }
 
 private:
-    static constexpr std::size_t framesInFlight = 2;
+    // The experiment images are shared by graphics, compute, and ImGui.
+    // One in-flight frame keeps their ownership deterministic.
+    static constexpr std::size_t framesInFlight = 1;
 
     struct QueueFamilies {
         std::optional<std::uint32_t> graphics;

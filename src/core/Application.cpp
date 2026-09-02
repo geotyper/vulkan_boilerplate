@@ -12,11 +12,11 @@
 namespace vkexp {
 
 Application::Application(Preset preset, const bool validationEnabled)
-    : window_(1280, 720, "Vulkan experiment framework"),
+    : window_(preset.windowWidth, preset.windowHeight, "Vulkan experiment framework"),
       vulkan_(window_, validationEnabled), preset_(std::move(preset)),
-      context_{window_, vulkan_, preset_} {
-    modules_.push_back(std::make_unique<ComputeModule>());
+      context_{window_, vulkan_, preset_, viewport_, blur_} {
     modules_.push_back(std::make_unique<GraphicsModule>());
+    modules_.push_back(std::make_unique<ComputeModule>());
     modules_.push_back(std::make_unique<ImGuiModule>());
 }
 

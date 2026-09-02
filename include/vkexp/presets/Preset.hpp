@@ -11,9 +11,9 @@ struct Preset {
     std::string description;
     bool graphicsEnabled{true};
     bool computeEnabled{true};
-    bool showDemoWindow{false};
     glm::vec4 clearColor{0.025F, 0.035F, 0.055F, 1.0F};
-    unsigned int computeGroups{1};
+    int windowWidth{1280};
+    int windowHeight{720};
 };
 
 } // namespace vkexp

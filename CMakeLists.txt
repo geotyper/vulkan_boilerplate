@@ -8,6 +8,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(VKEXP_ENABLE_VALIDATION "Enable Vulkan validation layers in debug builds" ON)
 
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS config/window.preset)
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/config)
+configure_file(config/window.preset
+               ${CMAKE_CURRENT_BINARY_DIR}/config/window.preset
+               COPYONLY)
+
 find_package(Vulkan 1.3 REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
 find_package(glm REQUIRED)
@@ -23,7 +29,6 @@ FetchContent_MakeAvailable(imgui)
 
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
@@ -74,6 +79,8 @@ target_include_directories(vulkan_boilerplate PRIVATE include)
 target_link_libraries(vulkan_boilerplate PRIVATE Vulkan::Vulkan glfw glm::glm imgui)
 target_compile_definitions(vulkan_boilerplate PRIVATE
     VKEXP_SHADER_DIR="${SHADER_BINARY_DIR}"
+    VKEXP_WINDOW_PRESET="${CMAKE_CURRENT_BINARY_DIR}/config/window.preset"
+    VKEXP_IMGUI_INI="${CMAKE_CURRENT_BINARY_DIR}/imgui.ini"
     $<$<AND:$<BOOL:${VKEXP_ENABLE_VALIDATION}>,$<CONFIG:Debug>>:VKEXP_ENABLE_VALIDATION>
 )
 

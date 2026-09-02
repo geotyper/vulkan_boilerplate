@@ -3,6 +3,16 @@
 A modular C++20 playground for Vulkan graphics and compute experiments, using
 GLFW, GLM, and Dear ImGui.
 
+The Vulkan scene renders into an off-screen texture shown in the ImGui
+**Viewport** window. The native window remains a simple background for the UI.
+ImGui saves the positions and sizes of the **Controls**, **Viewport**, and
+**Blur Output** windows to `build/imgui.ini`. Edit `config/window.preset` to
+change the initial size of the native window.
+
+The **Start** button dispatches a compute shader that applies a configurable
+box blur to the current triangle texture. Its result appears in the independent
+**Blur Output** window and remains unchanged until the next dispatch.
+
 ## Build
 
 Requirements: CMake 3.24+, a C++20 compiler, Vulkan 1.3 development files,

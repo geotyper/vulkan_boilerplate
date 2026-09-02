@@ -4,6 +4,9 @@
 
 #include <vulkan/vulkan.h>
 
+#include <cstdint>
+#include <string>
+
 namespace vkexp {
 
 class ImGuiModule final : public Module {
@@ -14,7 +17,14 @@ public:
     void onDetach(AppContext& context) override;
 
 private:
+    void syncViewportTextures(AppContext& context);
+
     VkDescriptorPool descriptorPool_{};
+    VkDescriptorSet viewportDescriptor_{};
+    VkDescriptorSet blurDescriptor_{};
+    std::uint64_t viewportGeneration_{};
+    std::uint64_t blurGeneration_{};
+    std::string iniPath_;
 };
 
 } // namespace vkexp

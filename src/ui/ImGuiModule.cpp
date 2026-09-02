@@ -8,7 +8,9 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <stdexcept>
 
 namespace vkexp {
@@ -39,6 +41,9 @@ void ImGuiModule::onAttach(AppContext& context) {
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    iniPath_ = VKEXP_IMGUI_INI;
+    ImGui::GetIO().IniFilename = iniPath_.c_str();
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
     if (!ImGui_ImplGlfw_InitForVulkan(context.window.handle(), true)) {
         throw std::runtime_error("Unable to initialize the ImGui GLFW backend");
@@ -64,14 +69,39 @@ void ImGuiModule::onAttach(AppContext& context) {
     if (!ImGui_ImplVulkan_Init(&initInfo)) {
         throw std::runtime_error("Unable to initialize the ImGui Vulkan backend");
     }
+    syncViewportTextures(context);
+}
+
+void ImGuiModule::syncViewportTextures(AppContext& context) {
+    if (viewportGeneration_ != context.viewport.generation) {
+        if (viewportDescriptor_ != VK_NULL_HANDLE) {
+            ImGui_ImplVulkan_RemoveTexture(viewportDescriptor_);
+        }
+        viewportDescriptor_ = ImGui_ImplVulkan_AddTexture(
+            context.viewport.sampler, context.viewport.imageView,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        viewportGeneration_ = context.viewport.generation;
+    }
+    if (blurGeneration_ != context.blur.generation) {
+        if (blurDescriptor_ != VK_NULL_HANDLE) {
+            ImGui_ImplVulkan_RemoveTexture(blurDescriptor_);
+        }
+        blurDescriptor_ = ImGui_ImplVulkan_AddTexture(
+            context.blur.sampler, context.blur.imageView,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        blurGeneration_ = context.blur.generation;
+    }
 }
 
 void ImGuiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
+    syncViewportTextures(context);
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    ImGui::Begin("Vulkan experiments");
+    ImGui::SetNextWindowPos(ImVec2(20.0F, 20.0F), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(320.0F, 250.0F), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Controls");
     ImGui::Text("Preset: %s", context.preset.name.c_str());
     ImGui::Text("Frame: %llu", static_cast<unsigned long long>(frame.frameNumber));
     ImGui::Text("%.2f ms (%.1f FPS)", frame.deltaSeconds * 1000.0F,
@@ -79,27 +109,73 @@ void ImGuiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::Separator();
     ImGui::Checkbox("Graphics pipeline", &context.preset.graphicsEnabled);
     ImGui::Checkbox("Compute pipeline", &context.preset.computeEnabled);
-    int computeGroups = static_cast<int>(context.preset.computeGroups);
-    if (ImGui::SliderInt("Compute groups", &computeGroups, 1, 256)) {
-        context.preset.computeGroups = static_cast<unsigned int>(computeGroups);
-    }
     ImGui::ColorEdit3("Clear color", &context.preset.clearColor.x);
-    ImGui::Checkbox("ImGui demo", &context.preset.showDemoWindow);
-    ImGui::End();
-    if (context.preset.showDemoWindow) {
-        ImGui::ShowDemoWindow(&context.preset.showDemoWindow);
+    ImGui::SliderInt("Blur radius", &context.blur.radius, 1, 12);
+    ImGui::BeginDisabled(!context.preset.computeEnabled);
+    if (ImGui::Button("Start")) {
+        context.blur.requested = true;
+        context.blur.ready = false;
     }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextUnformatted(context.blur.ready ? "Result ready" : "Waiting");
+    ImGui::End();
+
+    ImGui::SetNextWindowPos(ImVec2(360.0F, 20.0F), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(430.0F, 640.0F), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Viewport");
+    const ImVec2 available = ImGui::GetContentRegionAvail();
+    if (available.x >= 64.0F && available.y >= 64.0F) {
+        context.viewport.requestedWidth =
+            static_cast<std::uint32_t>(std::floor(available.x));
+        context.viewport.requestedHeight =
+            static_cast<std::uint32_t>(std::floor(available.y));
+        const ImTextureID texture =
+            static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(viewportDescriptor_));
+        ImGui::Image(texture, available);
+    }
+    ImGui::End();
+
+    ImGui::SetNextWindowPos(ImVec2(810.0F, 20.0F), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(430.0F, 640.0F), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Blur Output");
+    const ImVec2 blurAvailable = ImGui::GetContentRegionAvail();
+    if (blurAvailable.x > 1.0F && blurAvailable.y > 1.0F &&
+        context.blur.ready && blurDescriptor_ != VK_NULL_HANDLE &&
+        context.blur.extent.width > 0 && context.blur.extent.height > 0) {
+        const float scale = std::min(
+            blurAvailable.x / static_cast<float>(context.blur.extent.width),
+            blurAvailable.y / static_cast<float>(context.blur.extent.height));
+        const ImVec2 imageSize{
+            static_cast<float>(context.blur.extent.width) * scale,
+            static_cast<float>(context.blur.extent.height) * scale};
+        const ImTextureID texture =
+            static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(blurDescriptor_));
+        ImGui::Image(texture, imageSize);
+    } else {
+        ImGui::TextDisabled("Press Start to run the compute blur.");
+    }
+    ImGui::End();
     ImGui::Render();
 }
 
 void ImGuiModule::onRender(AppContext& context, const FrameInfo&) {
-    const VkClearColorValue unusedClear{};
-    context.vulkan.beginColorPass(VK_ATTACHMENT_LOAD_OP_LOAD, unusedClear);
+    constexpr VkClearColorValue background{{0.008F, 0.011F, 0.018F, 1.0F}};
+    context.vulkan.beginColorPass(VK_ATTACHMENT_LOAD_OP_CLEAR, background);
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), context.vulkan.commandBuffer());
     context.vulkan.endColorPass();
 }
 
 void ImGuiModule::onDetach(AppContext& context) {
+    ImGui::SaveIniSettingsToDisk(iniPath_.c_str());
+    if (viewportDescriptor_ != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(viewportDescriptor_);
+        viewportDescriptor_ = VK_NULL_HANDLE;
+    }
+    if (blurDescriptor_ != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(blurDescriptor_);
+        blurDescriptor_ = VK_NULL_HANDLE;
+    }
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
