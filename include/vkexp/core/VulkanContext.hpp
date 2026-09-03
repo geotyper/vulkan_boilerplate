@@ -10,6 +10,12 @@
 namespace vkexp {
 
 class Window;
+struct FrameSynchronizationTimings {
+    double fenceWaitMs{};
+    double acquireWaitMs{};
+    double queueSubmitMs{};
+    double presentMs{};
+};
 
 class VulkanContext {
 public:
@@ -19,8 +25,8 @@ public:
     VulkanContext(const VulkanContext&) = delete;
     VulkanContext& operator=(const VulkanContext&) = delete;
 
-    [[nodiscard]] bool beginFrame();
-    void endFrame();
+    [[nodiscard]] bool beginFrame(FrameSynchronizationTimings* timings = nullptr);
+    void endFrame(FrameSynchronizationTimings* timings = nullptr);
     void beginColorPass(VkAttachmentLoadOp loadOp, const VkClearColorValue& clearColor) const;
     void endColorPass() const;
     void waitIdle() const;

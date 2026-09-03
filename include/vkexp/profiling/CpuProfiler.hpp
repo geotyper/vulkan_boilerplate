@@ -4,11 +4,17 @@
 
 #include <array>
 #include <chrono>
+#include <ctime>
 
 namespace vkexp {
 
 class CpuProfiler {
 public:
+    struct FrameSample {
+        double wallMilliseconds{};
+        double cpuMilliseconds{};
+    };
+
     class Scope {
     public:
         Scope(CpuProfiler& profiler, ProfileMetricId metric);
@@ -26,7 +32,9 @@ public:
     };
 
     void beginFrame();
-    void endFrame(ProfileMetricId frameMetric, std::size_t metricCount);
+    [[nodiscard]] FrameSample endFrame(ProfileMetricId frameMetric, ProfileMetricId cpuWorkMetric,
+                                       std::size_t metricCount);
+    void addDuration(ProfileMetricId metric, double milliseconds);
     [[nodiscard]] Scope scope(ProfileMetricId metric) { return Scope{*this, metric}; }
     [[nodiscard]] const TimingSeries& series(ProfileMetricId metric) const {
         return series_[metric];
@@ -34,11 +42,11 @@ public:
 
 private:
     friend class Scope;
-    void record(ProfileMetricId metric, double milliseconds);
 
     using Clock = std::chrono::steady_clock;
     Clock::time_point frameStarted_{};
     std::array<double, maxProfileMetrics> accumulatedMs_{};
+    std::clock_t cpuStarted_{};
     std::array<TimingSeries, maxProfileMetrics> series_{};
     bool frameActive_{};
 };

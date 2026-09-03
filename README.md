@@ -28,15 +28,21 @@ box blur to the current triangle texture. Its result appears in the independent
 
 ## Profiler
 
-The persistent **Profiler** window reports CPU and GPU timings for the complete
-frame and metrics registered by the active modules, including graphics,
-compute blur, ImGui, and demo UI. Each metric keeps the latest 120 samples and
-exposes current, average, minimum, maximum, and p95 values.
+The persistent **Profiler** window separates total frame wall time from actual
+process CPU time and Vulkan synchronization waits. `Frame wall` includes the
+complete loop, while `CPU work` is process CPU time. `Fence wait`,
+`Acquire wait`, `Queue submit`, and `Present` reveal where the main thread was
+blocked instead of executing code. The panel derives current and rolling CPU
+load from CPU time divided by wall time.
 
-GPU measurements use Vulkan timestamp queries and are resolved after the frame
-fence without stalling the command stream. The panel reports when timestamps
-are unsupported. CPU and GPU histories can be inspected independently from the
-metric selector.
+The panel also reports the refresh rate of the monitor containing most of the
+window and estimates missed VSync intervals. This is an estimate based on frame
+wall time rather than a display-timing extension. Each metric keeps the latest
+120 samples and exposes current, average, minimum, maximum, and p95 values.
+
+GPU measurements use Vulkan timestamp queries and are resolved without stalling
+the command stream. The panel reports when timestamps are unsupported and hides
+metrics that have no samples for the selected CPU or GPU backend.
 
 ## Build
 

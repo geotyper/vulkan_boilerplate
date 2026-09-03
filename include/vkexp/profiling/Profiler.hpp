@@ -11,6 +11,12 @@
 namespace vkexp {
 
 class VulkanContext;
+struct FrameDiagnostics {
+    double refreshRateHz{};
+    double currentCpuLoadPercent{};
+    std::uint32_t estimatedMissedVsyncs{};
+    std::uint64_t totalEstimatedMissedVsyncs{};
+};
 
 class Profiler {
 public:
@@ -25,15 +31,28 @@ public:
     [[nodiscard]] const GpuProfiler& gpu() const { return gpu_; }
 
     void beginCpuFrame() { cpu_.beginFrame(); }
-    void endCpuFrame() { cpu_.endFrame(frameMetric_, metricNames_.size()); }
-    void beginGpuFrame(VkCommandBuffer commands) { gpu_.beginFrame(commands, frameMetric_); }
-    void endGpuFrame(VkCommandBuffer commands) { gpu_.endFrame(commands, frameMetric_); }
+    void endCpuFrame(double refreshRateHz);
+    void beginGpuFrame(VkCommandBuffer commands) { gpu_.beginFrame(commands, gpuFrameMetric_); }
+    void endGpuFrame(VkCommandBuffer commands) { gpu_.endFrame(commands, gpuFrameMetric_); }
+    void recordFrameSynchronization(double fenceWaitMs, double acquireWaitMs, double queueSubmitMs,
+                                    double presentMs);
+
+    [[nodiscard]] const FrameDiagnostics& frameDiagnostics() const { return frameDiagnostics_; }
+    [[nodiscard]] ProfileMetricId cpuFrameMetric() const { return cpuFrameMetric_; }
+    [[nodiscard]] ProfileMetricId cpuWorkMetric() const { return cpuWorkMetric_; }
 
 private:
     CpuProfiler cpu_;
     GpuProfiler gpu_;
     std::vector<std::string> metricNames_;
-    ProfileMetricId frameMetric_{invalidProfileMetric};
+    ProfileMetricId cpuFrameMetric_{invalidProfileMetric};
+    ProfileMetricId cpuWorkMetric_{invalidProfileMetric};
+    ProfileMetricId fenceWaitMetric_{invalidProfileMetric};
+    ProfileMetricId acquireWaitMetric_{invalidProfileMetric};
+    ProfileMetricId queueSubmitMetric_{invalidProfileMetric};
+    ProfileMetricId presentMetric_{invalidProfileMetric};
+    ProfileMetricId gpuFrameMetric_{invalidProfileMetric};
+    FrameDiagnostics frameDiagnostics_{};
 };
 
 } // namespace vkexp

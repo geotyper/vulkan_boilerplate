@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -416,12 +417,24 @@ void VulkanContext::createSyncObjects() {
     }
 }
 
-bool VulkanContext::beginFrame() {
-    check(vkWaitForFences(device_, 1, &inFlight_[currentFrame_], VK_TRUE, UINT64_MAX),
-          "vkWaitForFences");
+bool VulkanContext::beginFrame(FrameSynchronizationTimings* timings) {
+    using Clock = std::chrono::steady_clock;
+    FrameSynchronizationTimings ignoredTimings;
+    FrameSynchronizationTimings& frameTimings = timings != nullptr ? *timings : ignoredTimings;
+    frameTimings = {};
+
+    auto started = Clock::now();
+    const VkResult frameFence =
+        vkWaitForFences(device_, 1, &inFlight_[currentFrame_], VK_TRUE, UINT64_MAX);
+    frameTimings.fenceWaitMs +=
+        std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+    check(frameFence, "vkWaitForFences");
+    started = Clock::now();
     const VkResult acquired =
         vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, imageAvailable_[currentFrame_],
                               VK_NULL_HANDLE, &currentImage_);
+    frameTimings.acquireWaitMs =
+        std::chrono::duration<double, std::milli>(Clock::now() - started).count();
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
         recreateSwapchain();
         return false;
@@ -430,8 +443,12 @@ bool VulkanContext::beginFrame() {
         check(acquired, "vkAcquireNextImageKHR");
     }
     if (imagesInFlight_[currentImage_] != VK_NULL_HANDLE) {
-        check(vkWaitForFences(device_, 1, &imagesInFlight_[currentImage_], VK_TRUE, UINT64_MAX),
-              "vkWaitForFences(image)");
+        started = Clock::now();
+        const VkResult imageFence =
+            vkWaitForFences(device_, 1, &imagesInFlight_[currentImage_], VK_TRUE, UINT64_MAX);
+        frameTimings.fenceWaitMs +=
+            std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+        check(imageFence, "vkWaitForFences(image)");
     }
     imagesInFlight_[currentImage_] = inFlight_[currentFrame_];
     check(vkResetFences(device_, 1, &inFlight_[currentFrame_]), "vkResetFences");
@@ -493,7 +510,7 @@ void VulkanContext::beginColorPass(const VkAttachmentLoadOp loadOp,
 
 void VulkanContext::endColorPass() const { vkCmdEndRendering(commandBuffer()); }
 
-void VulkanContext::endFrame() {
+void VulkanContext::endFrame(FrameSynchronizationTimings* timings) {
     transitionCurrentImage(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     imageLayouts_[currentImage_] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
@@ -514,8 +531,15 @@ void VulkanContext::endFrame() {
     submitInfo.pCommandBufferInfos = &commandInfo;
     submitInfo.signalSemaphoreInfoCount = 1;
     submitInfo.pSignalSemaphoreInfos = &signalInfo;
-    check(vkQueueSubmit2(graphicsQueue_, 1, &submitInfo, inFlight_[currentFrame_]),
-          "vkQueueSubmit2");
+    using Clock = std::chrono::steady_clock;
+    auto started = Clock::now();
+    const VkResult submitted =
+        vkQueueSubmit2(graphicsQueue_, 1, &submitInfo, inFlight_[currentFrame_]);
+    FrameSynchronizationTimings ignoredTimings;
+    FrameSynchronizationTimings& frameTimings = timings != nullptr ? *timings : ignoredTimings;
+    frameTimings.queueSubmitMs =
+        std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+    check(submitted, "vkQueueSubmit2");
 
     VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     presentInfo.waitSemaphoreCount = 1;
@@ -523,7 +547,10 @@ void VulkanContext::endFrame() {
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = &swapchain_;
     presentInfo.pImageIndices = &currentImage_;
+    started = Clock::now();
     const VkResult presented = vkQueuePresentKHR(presentQueue_, &presentInfo);
+    frameTimings.presentMs =
+        std::chrono::duration<double, std::milli>(Clock::now() - started).count();
     frameActive_ = false;
     currentFrame_ = (currentFrame_ + 1) % framesInFlight;
     if (presented == VK_ERROR_OUT_OF_DATE_KHR || presented == VK_SUBOPTIMAL_KHR) {

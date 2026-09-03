@@ -15,6 +15,7 @@ public:
     Window& operator=(const Window&) = delete;
 
     [[nodiscard]] bool shouldClose() const;
+    [[nodiscard]] int refreshRateHz() const;
     void pollEvents() const;
     void waitForVisibleFramebuffer() const;
     [[nodiscard]] GLFWwindow* handle() const { return window_; }
@@ -24,4 +25,3 @@ private:
 };
 
 } // namespace vkexp
-

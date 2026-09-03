@@ -41,8 +41,10 @@ int Application::run() {
         const auto started = Clock::now();
         auto previous = started;
         std::uint64_t frameNumber = 0;
+        const double refreshRateHz = static_cast<double>(window_.refreshRateHz());
         while (!window_.shouldClose()) {
             profiler_.beginCpuFrame();
+            FrameSynchronizationTimings synchronizationTimings{};
             window_.pollEvents();
             const auto now = Clock::now();
             FrameInfo frame{
@@ -57,11 +59,14 @@ int Application::run() {
             for (auto& module : modules_) {
                 module->onUpdate(context_, frame);
             }
-            if (!vulkan_.beginFrame()) {
+            if (!vulkan_.beginFrame(&synchronizationTimings)) {
                 for (auto& module : modules_) {
                     module->onFrameEnd(context_, frame);
                 }
-                profiler_.endCpuFrame();
+                profiler_.recordFrameSynchronization(
+                    synchronizationTimings.fenceWaitMs, synchronizationTimings.acquireWaitMs,
+                    synchronizationTimings.queueSubmitMs, synchronizationTimings.presentMs);
+                profiler_.endCpuFrame(refreshRateHz);
                 continue;
             }
             profiler_.beginGpuFrame(vulkan_.commandBuffer());
@@ -69,11 +74,14 @@ int Application::run() {
                 module->onRender(context_, frame);
             }
             profiler_.endGpuFrame(vulkan_.commandBuffer());
-            vulkan_.endFrame();
+            vulkan_.endFrame(&synchronizationTimings);
             for (auto& module : modules_) {
                 module->onFrameEnd(context_, frame);
             }
-            profiler_.endCpuFrame();
+            profiler_.recordFrameSynchronization(
+                synchronizationTimings.fenceWaitMs, synchronizationTimings.acquireWaitMs,
+                synchronizationTimings.queueSubmitMs, synchronizationTimings.presentMs);
+            profiler_.endCpuFrame(refreshRateHz);
         }
         vulkan_.waitIdle();
     } catch (...) {

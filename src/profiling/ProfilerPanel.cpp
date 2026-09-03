@@ -22,29 +22,28 @@ void drawStatisticsTable(const char* label, const Backend& backend,
     }
 
     ImGui::TableSetupColumn("Metric");
-    ImGui::TableSetupColumn("Current");
-    ImGui::TableSetupColumn("Average");
-    ImGui::TableSetupColumn("Minimum");
-    ImGui::TableSetupColumn("Maximum");
-    ImGui::TableSetupColumn("P95");
+    ImGui::TableSetupColumn("Current ms");
+    ImGui::TableSetupColumn("Average ms");
+    ImGui::TableSetupColumn("Minimum ms");
+    ImGui::TableSetupColumn("Maximum ms");
+    ImGui::TableSetupColumn("P95 ms");
     ImGui::TableHeadersRow();
 
     for (std::size_t index = 0; index < metricNames.size(); ++index) {
         const auto metric = static_cast<ProfileMetricId>(index);
         const TimingStatistics statistics = backend.series(metric).statistics();
-        ImGui::TableNextRow();
+        if (statistics.sampleCount == 0) {
+            continue;
+        }
         ImGui::TableSetColumnIndex(0);
+        ImGui::TableNextRow();
         ImGui::TextUnformatted(metricNames[index].c_str());
+        const std::array values{
+            statistics.currentMs, statistics.averageMs,      statistics.minimumMs,
+            statistics.maximumMs, statistics.percentile95Ms,
+        };
         for (int column = 1; column < 6; ++column) {
             ImGui::TableSetColumnIndex(column);
-            if (statistics.sampleCount == 0) {
-                ImGui::TextUnformatted("-");
-                continue;
-            }
-            const std::array values{
-                statistics.currentMs, statistics.averageMs,      statistics.minimumMs,
-                statistics.maximumMs, statistics.percentile95Ms,
-            };
             ImGui::Text("%.3f", values[static_cast<std::size_t>(column - 1)]);
         }
     }
@@ -75,6 +74,22 @@ void ProfilerPanel::draw(const Profiler& profiler) {
 
     if (ImGui::CollapsingHeader("CPU timings", ImGuiTreeNodeFlags_DefaultOpen)) {
         drawStatisticsTable("CPU statistics", profiler.cpu(), profiler.metricNames());
+        const FrameDiagnostics& diagnostics = profiler.frameDiagnostics();
+        const TimingStatistics wall = profiler.cpu().series(profiler.cpuFrameMetric()).statistics();
+        const TimingStatistics work = profiler.cpu().series(profiler.cpuWorkMetric()).statistics();
+        const double averageCpuLoad =
+            wall.averageMs > 0.0F ? static_cast<double>(work.averageMs) / wall.averageMs * 100.0
+                                  : 0.0;
+        ImGui::Text("Process CPU load: %.1f%% current | %.1f%% rolling average",
+                    diagnostics.currentCpuLoadPercent, averageCpuLoad);
+        if (diagnostics.refreshRateHz > 0.0) {
+            ImGui::Text("Display: %.0f Hz | estimated missed VSync: %u last | %llu total",
+                        diagnostics.refreshRateHz, diagnostics.estimatedMissedVsyncs,
+                        static_cast<unsigned long long>(diagnostics.totalEstimatedMissedVsyncs));
+        } else {
+            ImGui::TextDisabled(
+                "Display refresh rate unavailable; missed VSync estimate disabled.");
+        }
     }
 
     if (ImGui::CollapsingHeader("GPU timings", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -103,9 +118,13 @@ void ProfilerPanel::draw(const Profiler& profiler) {
         ImGui::EndCombo();
     }
     const auto metric = static_cast<ProfileMetricId>(selectedMetric_);
-    drawHistoryPlot("CPU history", profiler.cpu().series(metric));
+    if (!profiler.cpu().series(metric).values().empty()) {
+        drawHistoryPlot("CPU history", profiler.cpu().series(metric));
+    }
     if (profiler.gpu().supported()) {
-        drawHistoryPlot("GPU history", profiler.gpu().series(metric));
+        if (!profiler.gpu().series(metric).values().empty()) {
+            drawHistoryPlot("GPU history", profiler.gpu().series(metric));
+        }
     }
 
     ImGui::End();

@@ -1,4 +1,5 @@
 #include "vkexp/presets/PresetRegistry.hpp"
+#include "vkexp/profiling/CpuProfiler.hpp"
 #include "vkexp/profiling/ProfilerTypes.hpp"
 
 #include <cmath>
@@ -35,6 +36,23 @@ void testTimingSeries() {
     check(closeTo(statistics.percentile95Ms, 4.0F), "TimingSeries p95");
 }
 
+void testCpuProfiler() {
+    constexpr vkexp::ProfileMetricId frameMetric = 0;
+    constexpr vkexp::ProfileMetricId cpuWorkMetric = 1;
+    constexpr vkexp::ProfileMetricId customMetric = 2;
+    vkexp::CpuProfiler profiler;
+    profiler.beginFrame();
+    profiler.addDuration(customMetric, 1.25);
+    const vkexp::CpuProfiler::FrameSample sample = profiler.endFrame(frameMetric, cpuWorkMetric, 3);
+
+    check(sample.wallMilliseconds >= 0.0, "CPU profiler wall time");
+    check(sample.cpuMilliseconds >= 0.0, "CPU profiler process time");
+    check(profiler.series(frameMetric).statistics().sampleCount == 1, "CPU frame sample");
+    check(profiler.series(cpuWorkMetric).statistics().sampleCount == 1, "CPU work sample");
+    check(closeTo(profiler.series(customMetric).statistics().currentMs, 1.25F),
+          "CPU custom duration");
+}
+
 void testPresetRegistry() {
     vkexp::PresetRegistry registry;
     check(registry.all().size() == 3, "Built-in preset count");
@@ -61,6 +79,7 @@ void testPresetRegistry() {
 
 int main() {
     testTimingSeries();
+    testCpuProfiler();
     testPresetRegistry();
     return failures == 0 ? 0 : 1;
 }
