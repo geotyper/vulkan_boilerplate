@@ -2,19 +2,18 @@
 
 #include "vkexp/core/VulkanContext.hpp"
 #include "vkexp/core/Window.hpp"
-#include "vkexp/presets/Preset.hpp"
 #include "vkexp/profiling/Profiler.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 
-#include <algorithm>
 #include <array>
-#include <cmath>
 #include <stdexcept>
 
 namespace vkexp {
+
+ImGuiModule::ImGuiModule(Profiler& profiler) : metric_(profiler.registerMetric("ImGui")) {}
 
 void ImGuiModule::onAttach(AppContext& context) {
     constexpr std::array poolSizes{
@@ -35,8 +34,8 @@ void ImGuiModule::onAttach(AppContext& context) {
     poolInfo.maxSets = 128;
     poolInfo.poolSizeCount = static_cast<std::uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    if (vkCreateDescriptorPool(context.vulkan.device(), &poolInfo, nullptr, &descriptorPool_) !=
-        VK_SUCCESS) {
+    if (vkCreateDescriptorPool(context.vulkan.device(), &poolInfo, nullptr,
+                               descriptorPool_.put(context.vulkan.device())) != VK_SUCCESS) {
         throw std::runtime_error("Unable to create ImGui descriptor pool");
     }
 
@@ -51,8 +50,7 @@ void ImGuiModule::onAttach(AppContext& context) {
     }
 
     const VkFormat colorFormat = context.vulkan.colorFormat();
-    VkPipelineRenderingCreateInfo renderingInfo{
-        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    VkPipelineRenderingCreateInfo renderingInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     renderingInfo.colorAttachmentCount = 1;
     renderingInfo.pColorAttachmentFormats = &colorFormat;
     ImGui_ImplVulkan_InitInfo initInfo{};
@@ -70,124 +68,54 @@ void ImGuiModule::onAttach(AppContext& context) {
     if (!ImGui_ImplVulkan_Init(&initInfo)) {
         throw std::runtime_error("Unable to initialize the ImGui Vulkan backend");
     }
-    syncViewportTextures(context);
 }
 
-void ImGuiModule::syncViewportTextures(AppContext& context) {
-    if (viewportGeneration_ != context.viewport.generation) {
-        if (viewportDescriptor_ != VK_NULL_HANDLE) {
-            ImGui_ImplVulkan_RemoveTexture(viewportDescriptor_);
-        }
-        viewportDescriptor_ = ImGui_ImplVulkan_AddTexture(
-            context.viewport.sampler, context.viewport.imageView,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        viewportGeneration_ = context.viewport.generation;
-    }
-    if (blurGeneration_ != context.blur.generation) {
-        if (blurDescriptor_ != VK_NULL_HANDLE) {
-            ImGui_ImplVulkan_RemoveTexture(blurDescriptor_);
-        }
-        blurDescriptor_ = ImGui_ImplVulkan_AddTexture(
-            context.blur.sampler, context.blur.imageView,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        blurGeneration_ = context.blur.generation;
-    }
-}
-
-void ImGuiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
-    auto cpuScope = context.profiler.cpu().scope(ProfileMetric::ImGui);
-    syncViewportTextures(context);
+void ImGuiModule::onFrameBegin(AppContext& context, const FrameInfo&) {
+    auto cpuScope = context.profiler.cpu().scope(metric_);
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
-
-    ImGui::SetNextWindowPos(ImVec2(20.0F, 20.0F), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(320.0F, 250.0F), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Controls");
-    ImGui::Text("Preset: %s", context.preset.name.c_str());
-    ImGui::Text("Frame: %llu", static_cast<unsigned long long>(frame.frameNumber));
-    ImGui::Text("%.2f ms (%.1f FPS)", frame.deltaSeconds * 1000.0F,
-                frame.deltaSeconds > 0.0F ? 1.0F / frame.deltaSeconds : 0.0F);
-    ImGui::Separator();
-    ImGui::Checkbox("Graphics pipeline", &context.preset.graphicsEnabled);
-    ImGui::Checkbox("Compute pipeline", &context.preset.computeEnabled);
-    ImGui::ColorEdit3("Clear color", &context.preset.clearColor.x);
-    ImGui::SliderInt("Blur radius", &context.blur.radius, 1, 12);
-    ImGui::BeginDisabled(!context.preset.computeEnabled);
-    if (ImGui::Button("Start")) {
-        context.blur.requested = true;
-        context.blur.ready = false;
-    }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::TextUnformatted(context.blur.ready ? "Result ready" : "Waiting");
-    ImGui::End();
-
-    ImGui::SetNextWindowPos(ImVec2(360.0F, 20.0F), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(430.0F, 640.0F), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Viewport");
-    const ImVec2 available = ImGui::GetContentRegionAvail();
-    if (available.x >= 64.0F && available.y >= 64.0F) {
-        context.viewport.requestedWidth =
-            static_cast<std::uint32_t>(std::floor(available.x));
-        context.viewport.requestedHeight =
-            static_cast<std::uint32_t>(std::floor(available.y));
-        const ImTextureID texture =
-            static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(viewportDescriptor_));
-        ImGui::Image(texture, available);
-    }
-    ImGui::End();
-
-    ImGui::SetNextWindowPos(ImVec2(810.0F, 20.0F), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(430.0F, 640.0F), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Blur Output");
-    const ImVec2 blurAvailable = ImGui::GetContentRegionAvail();
-    if (blurAvailable.x > 1.0F && blurAvailable.y > 1.0F &&
-        context.blur.ready && blurDescriptor_ != VK_NULL_HANDLE &&
-        context.blur.extent.width > 0 && context.blur.extent.height > 0) {
-        const float scale = std::min(
-            blurAvailable.x / static_cast<float>(context.blur.extent.width),
-            blurAvailable.y / static_cast<float>(context.blur.extent.height));
-        const ImVec2 imageSize{
-            static_cast<float>(context.blur.extent.width) * scale,
-            static_cast<float>(context.blur.extent.height) * scale};
-        const ImTextureID texture =
-            static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(blurDescriptor_));
-        ImGui::Image(texture, imageSize);
-    } else {
-        ImGui::TextDisabled("Press Start to run the compute blur.");
-    }
-    ImGui::End();
-    profilerPanel_.draw(context.profiler);
-    ImGui::Render();
+    frameOpen_ = true;
 }
 
 void ImGuiModule::onRender(AppContext& context, const FrameInfo&) {
-    auto cpuScope = context.profiler.cpu().scope(ProfileMetric::ImGui);
-    auto gpuScope =
-        context.profiler.gpu().scope(context.vulkan.commandBuffer(), ProfileMetric::ImGui);
+    ImGui::Render();
+    frameOpen_ = false;
+    auto cpuScope = context.profiler.cpu().scope(metric_);
+    auto gpuScope = context.profiler.gpu().scope(context.vulkan.commandBuffer(), metric_);
     constexpr VkClearColorValue background{{0.008F, 0.011F, 0.018F, 1.0F}};
     context.vulkan.beginColorPass(VK_ATTACHMENT_LOAD_OP_CLEAR, background);
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), context.vulkan.commandBuffer());
     context.vulkan.endColorPass();
 }
 
-void ImGuiModule::onDetach(AppContext& context) {
+void ImGuiModule::onFrameEnd(AppContext&, const FrameInfo&) {
+    if (frameOpen_) {
+        ImGui::EndFrame();
+        frameOpen_ = false;
+    }
+}
+
+void ImGuiModule::onDetach(AppContext&) {
     ImGui::SaveIniSettingsToDisk(iniPath_.c_str());
-    if (viewportDescriptor_ != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(viewportDescriptor_);
-        viewportDescriptor_ = VK_NULL_HANDLE;
-    }
-    if (blurDescriptor_ != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(blurDescriptor_);
-        blurDescriptor_ = VK_NULL_HANDLE;
-    }
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
-    vkDestroyDescriptorPool(context.vulkan.device(), descriptorPool_, nullptr);
-    descriptorPool_ = VK_NULL_HANDLE;
+    descriptorPool_.reset();
+}
+
+VkDescriptorSet ImGuiModule::addTexture(const VkSampler sampler, const VkImageView imageView,
+                                        const VkImageLayout layout) const {
+    if (sampler == VK_NULL_HANDLE || imageView == VK_NULL_HANDLE) {
+        return VK_NULL_HANDLE;
+    }
+    return ImGui_ImplVulkan_AddTexture(sampler, imageView, layout);
+}
+
+void ImGuiModule::removeTexture(const VkDescriptorSet descriptor) const {
+    if (descriptor != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(descriptor);
+    }
 }
 
 } // namespace vkexp
-

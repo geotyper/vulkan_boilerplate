@@ -9,27 +9,36 @@ the ImGui interface, and startup presets.
 ## Architecture
 
 ```text
-Application
-  -> Window
-  -> VulkanContext
-  -> PresetRegistry
-  -> Profiler
-  -> GraphicsModule
-  -> ComputeModule
-  -> ImGuiModule
+vulkan_boilerplate (composition root)
+  -> vkexp_demo
+       -> GraphicsModule
+       -> ComputeModule
+       -> DemoUiModule
+  -> vkexp_imgui
+       -> ImGuiModule
+       -> ProfilerPanel
+  -> vkexp_core
+       -> Application
+       -> Window
+       -> VulkanContext
+       -> VulkanResource
+  -> vkexp_profiling
 ```
 
-Every runtime subsystem implements the `Module` lifecycle:
+Every runtime module implements the `Module` lifecycle:
 
 1. `onAttach(AppContext&)` creates long-lived resources.
-2. `onUpdate(AppContext&, FrameInfo)` advances per-frame state.
-3. `onRender(AppContext&, FrameInfo)` records or submits its work.
-4. `onDetach(AppContext&)` releases resources in reverse order.
+2. `onFrameBegin(AppContext&, FrameInfo)` starts cross-cutting frame work.
+3. `onUpdate(AppContext&, FrameInfo)` advances per-frame state.
+4. `onRender(AppContext&, FrameInfo)` records its GPU work.
+5. `onFrameEnd(AppContext&, FrameInfo)` completes cross-cutting frame work.
+6. `onDetach(AppContext&)` releases resources in reverse order.
 
-The application owns modules, guarantees their lifetime, and provides shared
-state through `AppContext`. Modules do not own the application or one another.
-The graphics module publishes an off-screen image through `RenderViewport`;
-the ImGui module displays it without owning the renderer.
+The composition root selects modules; the application owns them and guarantees
+their lifetime. `AppContext` contains platform services only. Demo modules share
+their explicit `DemoState` dependency rather than adding application-specific
+fields to the core context. The graphics module publishes an off-screen image;
+the demo UI displays it without owning the renderer.
 
 ## Initial milestones
 
@@ -45,15 +54,18 @@ the ImGui module displays it without owning the renderer.
 - [x] Persist ImGui window layout and load the native window size from a preset.
 - [x] Add scoped CPU/GPU profiling, timestamp queries, rolling statistics, and
       a persistent profiler panel.
-- [ ] Add shader hot reload and runtime validation output.
-- [ ] Add reusable descriptor and resource allocators.
+- [x] Add runtime validation output through `VK_EXT_debug_utils`.
+- [x] Add reusable RAII handles and image/shader resources.
+- [x] Add automated unit and CLI smoke tests.
+- [ ] Add shader hot reload.
+- [ ] Add a reusable descriptor allocator.
 - [ ] Add off-screen compute-to-graphics image experiments.
-- [ ] Add automated rendering smoke tests.
+- [ ] Add automated rendering/image-comparison tests.
 
 ## Frame flow
 
 ```text
-poll events -> begin frame -> update modules -> acquire image
+poll events -> begin module frame -> update modules -> acquire image
             -> begin timestamp scopes
             -> render off-screen viewport
             -> optionally dispatch compute blur
@@ -79,18 +91,20 @@ camera state, and module-specific parameters.
 
 ```text
 include/vkexp/
-  core/       application, context, module, window
+  core/       application, context, module, window, Vulkan RAII resources
+  demo/       demo state and demo UI
   graphics/   graphics pipeline module
   compute/    compute pipeline module
-  ui/         ImGui module
+  ui/         generic ImGui backend module
   presets/    preset definitions and registry
   profiling/  CPU/GPU scopes, timing history, profiler panel
 src/          implementation files mirroring include/vkexp
 shaders/      GLSL shader experiments
+tests/        CPU-only unit and CLI smoke tests
 ```
 
 ## Build strategy
 
-CMake finds Vulkan and obtains GLFW, GLM, and Dear ImGui with `FetchContent`.
-Validation layers are enabled in debug builds when available. Optional shader
-targets use `glslangValidator`.
+CMake finds Vulkan, GLFW, and GLM as system packages and obtains pinned Dear
+ImGui with `FetchContent`. Validation layers are enabled in debug builds when
+available. Shader targets use `glslangValidator`.

@@ -15,7 +15,7 @@ class GpuProfiler {
 public:
     class Scope {
     public:
-        Scope(GpuProfiler& profiler, VkCommandBuffer commands, ProfileMetric metric);
+        Scope(GpuProfiler& profiler, VkCommandBuffer commands, ProfileMetricId metric);
         ~Scope();
 
         Scope(const Scope&) = delete;
@@ -26,7 +26,7 @@ public:
     private:
         GpuProfiler* profiler_{};
         VkCommandBuffer commands_{};
-        ProfileMetric metric_{};
+        ProfileMetricId metric_{invalidProfileMetric};
     };
 
     explicit GpuProfiler(VulkanContext& vulkan);
@@ -35,34 +35,33 @@ public:
     GpuProfiler(const GpuProfiler&) = delete;
     GpuProfiler& operator=(const GpuProfiler&) = delete;
 
-    void beginFrame(VkCommandBuffer commands);
-    void endFrame(VkCommandBuffer commands);
-    [[nodiscard]] Scope scope(VkCommandBuffer commands, ProfileMetric metric) {
+    void beginFrame(VkCommandBuffer commands, ProfileMetricId frameMetric);
+    void endFrame(VkCommandBuffer commands, ProfileMetricId frameMetric);
+    [[nodiscard]] Scope scope(VkCommandBuffer commands, ProfileMetricId metric) {
         return Scope{*this, commands, metric};
     }
 
     [[nodiscard]] bool supported() const { return supported_; }
-    [[nodiscard]] const TimingSeries& series(ProfileMetric metric) const {
-        return series_[metricIndex(metric)];
+    [[nodiscard]] const TimingSeries& series(ProfileMetricId metric) const {
+        return series_[metric];
     }
 
 private:
     friend class Scope;
 
-    static constexpr std::uint32_t queryCount =
-        static_cast<std::uint32_t>(profileMetricCount * 2U);
+    static constexpr std::uint32_t queryCount = static_cast<std::uint32_t>(maxProfileMetrics * 2U);
 
-    void writeBegin(VkCommandBuffer commands, ProfileMetric metric);
-    void writeEnd(VkCommandBuffer commands, ProfileMetric metric);
+    void writeBegin(VkCommandBuffer commands, ProfileMetricId metric);
+    void writeEnd(VkCommandBuffer commands, ProfileMetricId metric);
     void resolvePendingFrame();
 
     VkDevice device_{};
     VkQueryPool queryPool_{};
     float timestampPeriodNs_{};
     std::uint32_t timestampValidBits_{};
-    std::array<bool, profileMetricCount> currentWritten_{};
-    std::array<bool, profileMetricCount> pendingWritten_{};
-    std::array<TimingSeries, profileMetricCount> series_{};
+    std::array<bool, maxProfileMetrics> currentWritten_{};
+    std::array<bool, maxProfileMetrics> pendingWritten_{};
+    std::array<TimingSeries, maxProfileMetrics> series_{};
     bool supported_{};
     bool pendingFrame_{};
 };

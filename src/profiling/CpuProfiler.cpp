@@ -4,7 +4,7 @@
 
 namespace vkexp {
 
-CpuProfiler::Scope::Scope(CpuProfiler& profiler, const ProfileMetric metric)
+CpuProfiler::Scope::Scope(CpuProfiler& profiler, const ProfileMetricId metric)
     : profiler_(&profiler), metric_(metric), started_(std::chrono::steady_clock::now()) {}
 
 CpuProfiler::Scope::~Scope() {
@@ -25,15 +25,14 @@ void CpuProfiler::beginFrame() {
     frameActive_ = true;
 }
 
-void CpuProfiler::endFrame() {
+void CpuProfiler::endFrame(const ProfileMetricId frameMetric, const std::size_t metricCount) {
     if (!frameActive_) {
         return;
     }
-    accumulatedMs_[metricIndex(ProfileMetric::Frame)] =
+    accumulatedMs_[frameMetric] =
         std::chrono::duration<double, std::milli>(Clock::now() - frameStarted_).count();
-    for (std::size_t index = 0; index < profileMetricCount; ++index) {
-        if (index == metricIndex(ProfileMetric::ComputeBlur) &&
-            accumulatedMs_[index] == 0.0) {
+    for (std::size_t index = 0; index < metricCount; ++index) {
+        if (index != frameMetric && accumulatedMs_[index] == 0.0) {
             continue;
         }
         series_[index].add(accumulatedMs_[index]);
@@ -41,9 +40,9 @@ void CpuProfiler::endFrame() {
     frameActive_ = false;
 }
 
-void CpuProfiler::record(const ProfileMetric metric, const double milliseconds) {
-    if (frameActive_ && metric != ProfileMetric::Frame) {
-        accumulatedMs_[metricIndex(metric)] += milliseconds;
+void CpuProfiler::record(const ProfileMetricId metric, const double milliseconds) {
+    if (frameActive_ && metric < maxProfileMetrics) {
+        accumulatedMs_[metric] += milliseconds;
     }
 }
 

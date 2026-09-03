@@ -13,7 +13,8 @@ namespace vkexp {
 namespace {
 
 template <typename Backend>
-void drawStatisticsTable(const char* label, const Backend& backend) {
+void drawStatisticsTable(const char* label, const Backend& backend,
+                         const std::span<const std::string> metricNames) {
     if (!ImGui::BeginTable(label, 6,
                            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                ImGuiTableFlags_SizingStretchProp)) {
@@ -28,12 +29,12 @@ void drawStatisticsTable(const char* label, const Backend& backend) {
     ImGui::TableSetupColumn("P95");
     ImGui::TableHeadersRow();
 
-    for (std::size_t index = 0; index < profileMetricCount; ++index) {
-        const auto metric = static_cast<ProfileMetric>(index);
+    for (std::size_t index = 0; index < metricNames.size(); ++index) {
+        const auto metric = static_cast<ProfileMetricId>(index);
         const TimingStatistics statistics = backend.series(metric).statistics();
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
-        ImGui::TextUnformatted(profileMetricNames[index].data());
+        ImGui::TextUnformatted(metricNames[index].c_str());
         for (int column = 1; column < 6; ++column) {
             ImGui::TableSetColumnIndex(column);
             if (statistics.sampleCount == 0) {
@@ -41,11 +42,8 @@ void drawStatisticsTable(const char* label, const Backend& backend) {
                 continue;
             }
             const std::array values{
-                statistics.currentMs,
-                statistics.averageMs,
-                statistics.minimumMs,
-                statistics.maximumMs,
-                statistics.percentile95Ms,
+                statistics.currentMs, statistics.averageMs,      statistics.minimumMs,
+                statistics.maximumMs, statistics.percentile95Ms,
             };
             ImGui::Text("%.3f", values[static_cast<std::size_t>(column - 1)]);
         }
@@ -64,8 +62,8 @@ void drawHistoryPlot(const char* label, const TimingSeries& series) {
     std::array<char, 64> overlay{};
     std::snprintf(overlay.data(), overlay.size(), "current %.3f ms | p95 %.3f ms",
                   statistics.currentMs, statistics.percentile95Ms);
-    ImGui::PlotLines(label, values.data(), static_cast<int>(values.size()), 0,
-                     overlay.data(), FLT_MAX, FLT_MAX, ImVec2(0.0F, 80.0F));
+    ImGui::PlotLines(label, values.data(), static_cast<int>(values.size()), 0, overlay.data(),
+                     FLT_MAX, FLT_MAX, ImVec2(0.0F, 80.0F));
 }
 
 } // namespace
@@ -76,27 +74,35 @@ void ProfilerPanel::draw(const Profiler& profiler) {
     ImGui::Begin("Profiler");
 
     if (ImGui::CollapsingHeader("CPU timings", ImGuiTreeNodeFlags_DefaultOpen)) {
-        drawStatisticsTable("CPU statistics", profiler.cpu());
+        drawStatisticsTable("CPU statistics", profiler.cpu(), profiler.metricNames());
     }
 
     if (ImGui::CollapsingHeader("GPU timings", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (profiler.gpu().supported()) {
-            drawStatisticsTable("GPU statistics", profiler.gpu());
+            drawStatisticsTable("GPU statistics", profiler.gpu(), profiler.metricNames());
         } else {
             ImGui::TextDisabled("Timestamp queries are unavailable on this device.");
         }
     }
 
-    constexpr std::array metricLabels{
-        "Frame",
-        "Graphics",
-        "Compute Blur",
-        "ImGui",
-    };
     ImGui::SeparatorText("120-sample history");
-    ImGui::Combo("Metric", &selectedMetric_, metricLabels.data(),
-                 static_cast<int>(metricLabels.size()));
-    const auto metric = static_cast<ProfileMetric>(selectedMetric_);
+    const auto names = profiler.metricNames();
+    if (selectedMetric_ >= static_cast<int>(names.size())) {
+        selectedMetric_ = 0;
+    }
+    if (ImGui::BeginCombo("Metric", names[static_cast<std::size_t>(selectedMetric_)].c_str())) {
+        for (std::size_t index = 0; index < names.size(); ++index) {
+            const bool selected = selectedMetric_ == static_cast<int>(index);
+            if (ImGui::Selectable(names[index].c_str(), selected)) {
+                selectedMetric_ = static_cast<int>(index);
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    const auto metric = static_cast<ProfileMetricId>(selectedMetric_);
     drawHistoryPlot("CPU history", profiler.cpu().series(metric));
     if (profiler.gpu().supported()) {
         drawHistoryPlot("GPU history", profiler.gpu().series(metric));

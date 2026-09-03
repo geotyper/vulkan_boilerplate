@@ -1,8 +1,14 @@
+#include "vkexp/compute/ComputeModule.hpp"
 #include "vkexp/core/Application.hpp"
+#include "vkexp/demo/DemoState.hpp"
+#include "vkexp/demo/DemoUiModule.hpp"
+#include "vkexp/graphics/GraphicsModule.hpp"
 #include "vkexp/presets/PresetRegistry.hpp"
+#include "vkexp/ui/ImGuiModule.hpp"
 
 #include <exception>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -48,11 +54,23 @@ int main(const int argc, char** argv) {
         }
 
         presets.loadWindowPreset(VKEXP_WINDOW_PRESET);
-        vkexp::Application app{presets.require(presetName), validationEnabled};
+        vkexp::DemoState state{presets.require(presetName)};
+        vkexp::Application app{vkexp::ApplicationConfig{
+            state.preset.windowWidth,
+            state.preset.windowHeight,
+            "Vulkan experiment framework",
+            validationEnabled,
+        }};
+
+        auto imgui = std::make_unique<vkexp::ImGuiModule>(app.profiler());
+        auto& imguiBackend = *imgui;
+        app.addModule(std::make_unique<vkexp::GraphicsModule>(state, app.profiler()));
+        app.addModule(std::make_unique<vkexp::ComputeModule>(state, app.profiler()));
+        app.addModule(std::move(imgui));
+        app.addModule(std::make_unique<vkexp::DemoUiModule>(state, imguiBackend, app.profiler()));
         return app.run();
     } catch (const std::exception& error) {
         std::cerr << "Error: " << error.what() << '\n';
         return 1;
     }
 }
-

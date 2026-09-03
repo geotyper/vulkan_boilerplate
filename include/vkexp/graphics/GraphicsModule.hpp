@@ -1,13 +1,18 @@
 #pragma once
 
 #include "vkexp/core/Module.hpp"
-
-#include <vulkan/vulkan.h>
+#include "vkexp/core/VulkanResource.hpp"
+#include "vkexp/profiling/ProfilerTypes.hpp"
 
 namespace vkexp {
 
+class DemoState;
+class Profiler;
+
 class GraphicsModule final : public Module {
 public:
+    GraphicsModule(DemoState& state, Profiler& profiler);
+
     void onAttach(AppContext& context) override;
     void onUpdate(AppContext& context, const FrameInfo& frame) override;
     void onRender(AppContext& context, const FrameInfo& frame) override;
@@ -17,19 +22,14 @@ private:
     static constexpr VkFormat targetFormat = VK_FORMAT_R8G8B8A8_UNORM;
 
     void createRenderTarget(AppContext& context, VkExtent2D extent);
-    void destroyRenderTarget(AppContext& context);
-    [[nodiscard]] std::uint32_t findMemoryType(AppContext& context,
-                                               std::uint32_t typeFilter,
-                                               VkMemoryPropertyFlags properties) const;
+    void destroyRenderTarget();
 
-    VkPipelineLayout pipelineLayout_{};
-    VkPipeline pipeline_{};
-    VkImage targetImage_{};
-    VkDeviceMemory targetMemory_{};
-    VkImageView targetView_{};
-    VkSampler targetSampler_{};
+    DemoState& state_;
+    ProfileMetricId metric_{invalidProfileMetric};
+    UniquePipelineLayout pipelineLayout_;
+    UniquePipeline pipeline_;
+    ImageResource target_;
     VkImageLayout targetLayout_{VK_IMAGE_LAYOUT_UNDEFINED};
 };
 
 } // namespace vkexp
-

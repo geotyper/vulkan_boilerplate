@@ -1,26 +1,35 @@
 #include "vkexp/core/Application.hpp"
 
-#include "vkexp/compute/ComputeModule.hpp"
-#include "vkexp/graphics/GraphicsModule.hpp"
-#include "vkexp/ui/ImGuiModule.hpp"
-
 #include <algorithm>
 #include <chrono>
 #include <exception>
+#include <stdexcept>
 #include <utility>
 
 namespace vkexp {
 
-Application::Application(Preset preset, const bool validationEnabled)
-    : window_(preset.windowWidth, preset.windowHeight, "Vulkan experiment framework"),
-      vulkan_(window_, validationEnabled), preset_(std::move(preset)),
-      profiler_(vulkan_), context_{window_, vulkan_, preset_, viewport_, blur_, profiler_} {
-    modules_.push_back(std::make_unique<GraphicsModule>());
-    modules_.push_back(std::make_unique<ComputeModule>());
-    modules_.push_back(std::make_unique<ImGuiModule>());
+Application::Application(ApplicationConfig config)
+    : window_(config.windowWidth, config.windowHeight, config.title),
+      vulkan_(window_, config.validationEnabled), profiler_(vulkan_),
+      context_{window_, vulkan_, profiler_} {}
+
+Module& Application::addModule(std::unique_ptr<Module> module) {
+    if (running_) {
+        throw std::logic_error("Modules cannot be added while the application is running");
+    }
+    if (!module) {
+        throw std::invalid_argument("Cannot add a null module");
+    }
+    Module& reference = *module;
+    modules_.push_back(std::move(module));
+    return reference;
 }
 
 int Application::run() {
+    if (running_) {
+        throw std::logic_error("Application is already running");
+    }
+    running_ = true;
     std::size_t attached = 0;
     try {
         for (auto& module : modules_) {
@@ -33,7 +42,7 @@ int Application::run() {
         auto previous = started;
         std::uint64_t frameNumber = 0;
         while (!window_.shouldClose()) {
-            profiler_.cpu().beginFrame();
+            profiler_.beginCpuFrame();
             window_.pollEvents();
             const auto now = Clock::now();
             FrameInfo frame{
@@ -43,19 +52,28 @@ int Application::run() {
             };
             previous = now;
             for (auto& module : modules_) {
+                module->onFrameBegin(context_, frame);
+            }
+            for (auto& module : modules_) {
                 module->onUpdate(context_, frame);
             }
             if (!vulkan_.beginFrame()) {
-                profiler_.cpu().endFrame();
+                for (auto& module : modules_) {
+                    module->onFrameEnd(context_, frame);
+                }
+                profiler_.endCpuFrame();
                 continue;
             }
-            profiler_.gpu().beginFrame(vulkan_.commandBuffer());
+            profiler_.beginGpuFrame(vulkan_.commandBuffer());
             for (auto& module : modules_) {
                 module->onRender(context_, frame);
             }
-            profiler_.gpu().endFrame(vulkan_.commandBuffer());
+            profiler_.endGpuFrame(vulkan_.commandBuffer());
             vulkan_.endFrame();
-            profiler_.cpu().endFrame();
+            for (auto& module : modules_) {
+                module->onFrameEnd(context_, frame);
+            }
+            profiler_.endCpuFrame();
         }
         vulkan_.waitIdle();
     } catch (...) {
@@ -63,14 +81,15 @@ int Application::run() {
         for (std::size_t i = attached; i > 0; --i) {
             modules_[i - 1]->onDetach(context_);
         }
+        running_ = false;
         throw;
     }
 
     for (auto iterator = modules_.rbegin(); iterator != modules_.rend(); ++iterator) {
         (*iterator)->onDetach(context_);
     }
+    running_ = false;
     return 0;
 }
 
 } // namespace vkexp
-

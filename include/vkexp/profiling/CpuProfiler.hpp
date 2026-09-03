@@ -11,7 +11,7 @@ class CpuProfiler {
 public:
     class Scope {
     public:
-        Scope(CpuProfiler& profiler, ProfileMetric metric);
+        Scope(CpuProfiler& profiler, ProfileMetricId metric);
         ~Scope();
 
         Scope(const Scope&) = delete;
@@ -21,25 +21,25 @@ public:
 
     private:
         CpuProfiler* profiler_{};
-        ProfileMetric metric_{};
+        ProfileMetricId metric_{invalidProfileMetric};
         std::chrono::steady_clock::time_point started_{};
     };
 
     void beginFrame();
-    void endFrame();
-    [[nodiscard]] Scope scope(ProfileMetric metric) { return Scope{*this, metric}; }
-    [[nodiscard]] const TimingSeries& series(ProfileMetric metric) const {
-        return series_[metricIndex(metric)];
+    void endFrame(ProfileMetricId frameMetric, std::size_t metricCount);
+    [[nodiscard]] Scope scope(ProfileMetricId metric) { return Scope{*this, metric}; }
+    [[nodiscard]] const TimingSeries& series(ProfileMetricId metric) const {
+        return series_[metric];
     }
 
 private:
     friend class Scope;
-    void record(ProfileMetric metric, double milliseconds);
+    void record(ProfileMetricId metric, double milliseconds);
 
     using Clock = std::chrono::steady_clock;
     Clock::time_point frameStarted_{};
-    std::array<double, profileMetricCount> accumulatedMs_{};
-    std::array<TimingSeries, profileMetricCount> series_{};
+    std::array<double, maxProfileMetrics> accumulatedMs_{};
+    std::array<TimingSeries, maxProfileMetrics> series_{};
     bool frameActive_{};
 };
 

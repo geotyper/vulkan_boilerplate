@@ -8,6 +8,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(VKEXP_ENABLE_VALIDATION "Enable Vulkan validation layers in debug builds" ON)
 
+include(CTest)
+
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS config/window.preset)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/config)
 configure_file(config/window.preset
@@ -63,37 +65,85 @@ foreach(SHADER ${SHADER_SOURCES})
 endforeach()
 add_custom_target(vkexp_shaders ALL DEPENDS ${SHADER_BINARIES})
 
-add_executable(vulkan_boilerplate
-    src/main.cpp
-    src/core/Application.cpp
-    src/core/VulkanContext.cpp
-    src/core/Window.cpp
-    src/graphics/GraphicsModule.cpp
-    src/compute/ComputeModule.cpp
-    src/ui/ImGuiModule.cpp
-    src/presets/PresetRegistry.cpp
+function(vkexp_enable_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+    else()
+        # Vulkan C structs intentionally use partial aggregate initialization.
+        target_compile_options(${target} PRIVATE
+            -Wall -Wextra -Wpedantic -Wno-missing-field-initializers
+        )
+    endif()
+endfunction()
+
+add_library(vkexp_profiling STATIC
     src/profiling/CpuProfiler.cpp
     src/profiling/GpuProfiler.cpp
+    src/profiling/Profiler.cpp
+)
+target_include_directories(vkexp_profiling PUBLIC include)
+target_link_libraries(vkexp_profiling PUBLIC Vulkan::Vulkan)
+vkexp_enable_warnings(vkexp_profiling)
+
+add_library(vkexp_core STATIC
+    src/core/Application.cpp
+    src/core/VulkanContext.cpp
+    src/core/VulkanResource.cpp
+    src/core/Window.cpp
+)
+target_include_directories(vkexp_core PUBLIC include)
+target_link_libraries(vkexp_core PUBLIC Vulkan::Vulkan glfw vkexp_profiling)
+vkexp_enable_warnings(vkexp_core)
+
+add_library(vkexp_imgui STATIC
+    src/ui/ImGuiModule.cpp
     src/profiling/ProfilerPanel.cpp
 )
-add_dependencies(vulkan_boilerplate vkexp_shaders)
-
-target_include_directories(vulkan_boilerplate PRIVATE include)
-target_link_libraries(vulkan_boilerplate PRIVATE Vulkan::Vulkan glfw glm::glm imgui)
-target_compile_definitions(vulkan_boilerplate PRIVATE
-    VKEXP_SHADER_DIR="${SHADER_BINARY_DIR}"
-    VKEXP_WINDOW_PRESET="${CMAKE_CURRENT_BINARY_DIR}/config/window.preset"
+target_include_directories(vkexp_imgui PUBLIC include)
+target_link_libraries(vkexp_imgui
+    PUBLIC vkexp_core vkexp_profiling
+    PRIVATE imgui
+)
+target_compile_definitions(vkexp_imgui PRIVATE
     VKEXP_IMGUI_INI="${CMAKE_CURRENT_BINARY_DIR}/imgui.ini"
+)
+vkexp_enable_warnings(vkexp_imgui)
+
+add_library(vkexp_demo STATIC
+    src/graphics/GraphicsModule.cpp
+    src/compute/ComputeModule.cpp
+    src/demo/DemoUiModule.cpp
+    src/presets/PresetRegistry.cpp
+)
+add_dependencies(vkexp_demo vkexp_shaders)
+target_include_directories(vkexp_demo PUBLIC include)
+target_link_libraries(vkexp_demo
+    PUBLIC vkexp_core vkexp_imgui glm::glm
+    PRIVATE imgui
+)
+target_compile_definitions(vkexp_demo PRIVATE
+    VKEXP_SHADER_DIR="${SHADER_BINARY_DIR}"
+)
+vkexp_enable_warnings(vkexp_demo)
+
+add_executable(vulkan_boilerplate src/main.cpp)
+target_link_libraries(vulkan_boilerplate PRIVATE vkexp_demo)
+target_compile_definitions(vulkan_boilerplate PRIVATE
+    VKEXP_WINDOW_PRESET="${CMAKE_CURRENT_BINARY_DIR}/config/window.preset"
     $<$<AND:$<BOOL:${VKEXP_ENABLE_VALIDATION}>,$<CONFIG:Debug>>:VKEXP_ENABLE_VALIDATION>
 )
+vkexp_enable_warnings(vulkan_boilerplate)
 
-if(MSVC)
-    target_compile_options(vulkan_boilerplate PRIVATE /W4 /permissive-)
-else()
-    # Vulkan's C structs are conventionally zero-initialized with only sType
-    # specified first, which otherwise produces hundreds of unhelpful warnings.
-    target_compile_options(vulkan_boilerplate PRIVATE
-        -Wall -Wextra -Wpedantic -Wno-missing-field-initializers
+if(BUILD_TESTING)
+    add_executable(vkexp_unit_tests tests/vkexp_unit_tests.cpp)
+    target_link_libraries(vkexp_unit_tests PRIVATE vkexp_demo)
+    target_compile_definitions(vkexp_unit_tests PRIVATE
+        VKEXP_TEST_WINDOW_PRESET="${CMAKE_CURRENT_SOURCE_DIR}/config/window.preset"
     )
+    vkexp_enable_warnings(vkexp_unit_tests)
+
+    add_test(NAME vkexp_unit_tests COMMAND vkexp_unit_tests)
+    add_test(NAME vkexp_cli_list_presets
+             COMMAND vulkan_boilerplate --list-presets)
 endif()
 

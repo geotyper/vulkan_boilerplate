@@ -1,33 +1,36 @@
 #pragma once
 
 #include "vkexp/core/Module.hpp"
-#include "vkexp/profiling/ProfilerPanel.hpp"
+#include "vkexp/core/VulkanResource.hpp"
+#include "vkexp/profiling/ProfilerTypes.hpp"
 
 #include <vulkan/vulkan.h>
 
-#include <cstdint>
 #include <string>
 
 namespace vkexp {
 
+class Profiler;
+
 class ImGuiModule final : public Module {
 public:
+    explicit ImGuiModule(Profiler& profiler);
+
     void onAttach(AppContext& context) override;
-    void onUpdate(AppContext& context, const FrameInfo& frame) override;
+    void onFrameBegin(AppContext& context, const FrameInfo& frame) override;
     void onRender(AppContext& context, const FrameInfo& frame) override;
+    void onFrameEnd(AppContext& context, const FrameInfo& frame) override;
     void onDetach(AppContext& context) override;
 
-private:
-    void syncViewportTextures(AppContext& context);
+    [[nodiscard]] VkDescriptorSet addTexture(VkSampler sampler, VkImageView imageView,
+                                             VkImageLayout layout) const;
+    void removeTexture(VkDescriptorSet descriptor) const;
 
-    VkDescriptorPool descriptorPool_{};
-    VkDescriptorSet viewportDescriptor_{};
-    VkDescriptorSet blurDescriptor_{};
-    std::uint64_t viewportGeneration_{};
-    std::uint64_t blurGeneration_{};
+private:
+    UniqueDescriptorPool descriptorPool_;
+    ProfileMetricId metric_{invalidProfileMetric};
     std::string iniPath_;
-    ProfilerPanel profilerPanel_;
+    bool frameOpen_{};
 };
 
 } // namespace vkexp
-

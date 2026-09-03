@@ -11,27 +11,9 @@
 
 namespace vkexp {
 
-enum class ProfileMetric : std::uint8_t {
-    Frame,
-    Graphics,
-    ComputeBlur,
-    ImGui,
-    Count,
-};
-
-inline constexpr std::size_t profileMetricCount =
-    static_cast<std::size_t>(ProfileMetric::Count);
-
-inline constexpr std::array<std::string_view, profileMetricCount> profileMetricNames{
-    "Frame",
-    "Graphics",
-    "Compute Blur",
-    "ImGui",
-};
-
-[[nodiscard]] constexpr std::size_t metricIndex(const ProfileMetric metric) {
-    return static_cast<std::size_t>(metric);
-}
+using ProfileMetricId = std::uint32_t;
+inline constexpr ProfileMetricId invalidProfileMetric = ~ProfileMetricId{0};
+inline constexpr std::size_t maxProfileMetrics = 32;
 
 struct TimingStatistics {
     float currentMs{};
@@ -56,9 +38,7 @@ public:
         values_.back() = value;
     }
 
-    [[nodiscard]] std::span<const float> values() const {
-        return {values_.data(), count_};
-    }
+    [[nodiscard]] std::span<const float> values() const { return {values_.data(), count_}; }
 
     [[nodiscard]] TimingStatistics statistics() const {
         TimingStatistics result{};
@@ -69,18 +49,15 @@ public:
 
         const auto samples = values();
         result.currentMs = samples.back();
-        const auto [minimum, maximum] =
-            std::minmax_element(samples.begin(), samples.end());
+        const auto [minimum, maximum] = std::minmax_element(samples.begin(), samples.end());
         result.minimumMs = *minimum;
         result.maximumMs = *maximum;
-        result.averageMs =
-            std::accumulate(samples.begin(), samples.end(), 0.0F) /
-            static_cast<float>(samples.size());
+        result.averageMs = std::accumulate(samples.begin(), samples.end(), 0.0F) /
+                           static_cast<float>(samples.size());
 
         std::vector<float> sorted{samples.begin(), samples.end()};
         std::sort(sorted.begin(), sorted.end());
-        const std::size_t percentileIndex =
-            ((sorted.size() * 95U + 99U) / 100U) - 1U;
+        const std::size_t percentileIndex = ((sorted.size() * 95U + 99U) / 100U) - 1U;
         result.percentile95Ms = sorted[percentileIndex];
         return result;
     }

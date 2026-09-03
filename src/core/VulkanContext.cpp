@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <iostream>
 #include <limits>
 #include <ranges>
 #include <set>
@@ -37,19 +38,36 @@ bool validationAvailable() {
     });
 }
 
+bool instanceExtensionAvailable(const char* wanted) {
+    std::uint32_t count = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
+    std::vector<VkExtensionProperties> extensions(count);
+    vkEnumerateInstanceExtensionProperties(nullptr, &count, extensions.data());
+    return std::ranges::any_of(extensions, [wanted](const VkExtensionProperties& extension) {
+        return std::strcmp(extension.extensionName, wanted) == 0;
+    });
+}
+
 } // namespace
 
 VulkanContext::VulkanContext(Window& window, const bool enableValidation) : window_(window) {
-    createInstance(enableValidation);
-    createSurface();
-    selectPhysicalDevice();
-    createDevice();
-    createSwapchain();
-    createCommands();
-    createSyncObjects();
+    try {
+        createInstance(enableValidation);
+        createSurface();
+        selectPhysicalDevice();
+        createDevice();
+        createSwapchain();
+        createCommands();
+        createSyncObjects();
+    } catch (...) {
+        cleanup();
+        throw;
+    }
 }
 
-VulkanContext::~VulkanContext() {
+VulkanContext::~VulkanContext() { cleanup(); }
+
+void VulkanContext::cleanup() {
     if (device_ != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(device_);
         for (std::size_t i = 0; i < framesInFlight; ++i) {
@@ -62,13 +80,17 @@ VulkanContext::~VulkanContext() {
         }
         destroySwapchain();
         vkDestroyDevice(device_, nullptr);
+        device_ = VK_NULL_HANDLE;
     }
     if (surface_ != VK_NULL_HANDLE) {
         vkDestroySurfaceKHR(instance_, surface_, nullptr);
+        surface_ = VK_NULL_HANDLE;
     }
+    destroyDebugMessenger();
     if (instance_ != VK_NULL_HANDLE) {
         vkDestroyInstance(instance_, nullptr);
     }
+    instance_ = VK_NULL_HANDLE;
 }
 
 void VulkanContext::createInstance(const bool enableValidation) {
@@ -81,21 +103,79 @@ void VulkanContext::createInstance(const bool enableValidation) {
     appInfo.engineVersion = VK_MAKE_VERSION(0, 1, 0);
     appInfo.apiVersion = VK_API_VERSION_1_3;
 
-    std::uint32_t extensionCount = 0;
-    const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&extensionCount);
+    std::uint32_t glfwExtensionCount = 0;
+    const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
     if (glfwExtensions == nullptr) {
         throw std::runtime_error("GLFW did not provide Vulkan instance extensions");
+    }
+    std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+    debugUtilsEnabled_ =
+        validationEnabled_ && instanceExtensionAvailable(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    if (debugUtilsEnabled_) {
+        extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
     VkInstanceCreateInfo createInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     createInfo.pApplicationInfo = &appInfo;
-    createInfo.enabledExtensionCount = extensionCount;
-    createInfo.ppEnabledExtensionNames = glfwExtensions;
+    createInfo.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
+    createInfo.ppEnabledExtensionNames = extensions.data();
+    VkDebugUtilsMessengerCreateInfoEXT debugInfo{
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
     if (validationEnabled_) {
         createInfo.enabledLayerCount = static_cast<std::uint32_t>(validationLayers.size());
         createInfo.ppEnabledLayerNames = validationLayers.data();
     }
+    if (debugUtilsEnabled_) {
+        debugInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        debugInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        debugInfo.pfnUserCallback = debugCallback;
+        createInfo.pNext = &debugInfo;
+    }
     check(vkCreateInstance(&createInfo, nullptr, &instance_), "vkCreateInstance");
+    createDebugMessenger();
+}
+
+VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::debugCallback(
+    const VkDebugUtilsMessageSeverityFlagBitsEXT, const VkDebugUtilsMessageTypeFlagsEXT,
+    const VkDebugUtilsMessengerCallbackDataEXT* callbackData, void*) {
+    std::cerr << "[Vulkan validation] "
+              << (callbackData != nullptr ? callbackData->pMessage : "Unknown message") << '\n';
+    return VK_FALSE;
+}
+
+void VulkanContext::createDebugMessenger() {
+    if (!debugUtilsEnabled_) {
+        return;
+    }
+    const auto create = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+        vkGetInstanceProcAddr(instance_, "vkCreateDebugUtilsMessengerEXT"));
+    if (create == nullptr) {
+        throw std::runtime_error("VK_EXT_debug_utils is enabled but unavailable");
+    }
+    VkDebugUtilsMessengerCreateInfoEXT info{
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
+    info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                           VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                       VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                       VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    info.pfnUserCallback = debugCallback;
+    check(create(instance_, &info, nullptr, &debugMessenger_), "vkCreateDebugUtilsMessengerEXT");
+}
+
+void VulkanContext::destroyDebugMessenger() {
+    if (debugMessenger_ == VK_NULL_HANDLE || instance_ == VK_NULL_HANDLE) {
+        return;
+    }
+    const auto destroy = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+        vkGetInstanceProcAddr(instance_, "vkDestroyDebugUtilsMessengerEXT"));
+    if (destroy != nullptr) {
+        destroy(instance_, debugMessenger_, nullptr);
+    }
+    debugMessenger_ = VK_NULL_HANDLE;
 }
 
 void VulkanContext::createSurface() {
@@ -150,12 +230,13 @@ bool VulkanContext::deviceSuitable(const VkPhysicalDevice device) const {
     vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface_, &formatCount, nullptr);
     vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface_, &presentModeCount, nullptr);
 
-    VkPhysicalDeviceDynamicRenderingFeatures dynamicRendering{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES};
+    VkPhysicalDeviceVulkan13Features vulkan13{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-    features.pNext = &dynamicRendering;
+    features.pNext = &vulkan13;
     vkGetPhysicalDeviceFeatures2(device, &features);
-    return formatCount > 0 && presentModeCount > 0 && dynamicRendering.dynamicRendering == VK_TRUE;
+    return formatCount > 0 && presentModeCount > 0 && vulkan13.dynamicRendering == VK_TRUE &&
+           vulkan13.synchronization2 == VK_TRUE;
 }
 
 void VulkanContext::selectPhysicalDevice() {
@@ -167,11 +248,11 @@ void VulkanContext::selectPhysicalDevice() {
     std::vector<VkPhysicalDevice> devices(count);
     check(vkEnumeratePhysicalDevices(instance_, &count, devices.data()),
           "vkEnumeratePhysicalDevices");
-    const auto found = std::ranges::find_if(devices, [this](const VkPhysicalDevice device) {
-        return deviceSuitable(device);
-    });
+    const auto found = std::ranges::find_if(
+        devices, [this](const VkPhysicalDevice device) { return deviceSuitable(device); });
     if (found == devices.end()) {
-        throw std::runtime_error("No Vulkan 1.3 device with graphics, compute, and presentation found");
+        throw std::runtime_error(
+            "No Vulkan 1.3 device with graphics, compute, and presentation found");
     }
     physicalDevice_ = *found;
 }
@@ -192,12 +273,13 @@ void VulkanContext::createDevice() {
         queueInfos.push_back(queueInfo);
     }
 
-    VkPhysicalDeviceDynamicRenderingFeatures dynamicRendering{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES};
-    dynamicRendering.dynamicRendering = VK_TRUE;
+    VkPhysicalDeviceVulkan13Features vulkan13{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    vulkan13.dynamicRendering = VK_TRUE;
+    vulkan13.synchronization2 = VK_TRUE;
 
     VkDeviceCreateInfo createInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-    createInfo.pNext = &dynamicRendering;
+    createInfo.pNext = &vulkan13;
     createInfo.queueCreateInfoCount = static_cast<std::uint32_t>(queueInfos.size());
     createInfo.pQueueCreateInfos = queueInfos.data();
     createInfo.enabledExtensionCount = static_cast<std::uint32_t>(deviceExtensions.size());
@@ -231,12 +313,12 @@ void VulkanContext::createSwapchain() {
         int width = 0;
         int height = 0;
         glfwGetFramebufferSize(window_.handle(), &width, &height);
-        extent_.width = std::clamp(static_cast<std::uint32_t>(width),
-                                   capabilities.minImageExtent.width,
-                                   capabilities.maxImageExtent.width);
-        extent_.height = std::clamp(static_cast<std::uint32_t>(height),
-                                    capabilities.minImageExtent.height,
-                                    capabilities.maxImageExtent.height);
+        extent_.width =
+            std::clamp(static_cast<std::uint32_t>(width), capabilities.minImageExtent.width,
+                       capabilities.maxImageExtent.width);
+        extent_.height =
+            std::clamp(static_cast<std::uint32_t>(height), capabilities.minImageExtent.height,
+                       capabilities.maxImageExtent.height);
     }
 
     std::uint32_t imageCount = capabilities.minImageCount + 1;
@@ -264,8 +346,7 @@ void VulkanContext::createSwapchain() {
     createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     createInfo.clipped = VK_TRUE;
-    check(vkCreateSwapchainKHR(device_, &createInfo, nullptr, &swapchain_),
-          "vkCreateSwapchainKHR");
+    check(vkCreateSwapchainKHR(device_, &createInfo, nullptr, &swapchain_), "vkCreateSwapchainKHR");
 
     check(vkGetSwapchainImagesKHR(device_, swapchain_, &imageCount, nullptr),
           "vkGetSwapchainImagesKHR");
@@ -312,8 +393,7 @@ void VulkanContext::createCommands() {
     VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = graphicsQueueFamily_;
-    check(vkCreateCommandPool(device_, &poolInfo, nullptr, &commandPool_),
-          "vkCreateCommandPool");
+    check(vkCreateCommandPool(device_, &poolInfo, nullptr, &commandPool_), "vkCreateCommandPool");
 
     VkCommandBufferAllocateInfo allocateInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     allocateInfo.commandPool = commandPool_;
@@ -339,9 +419,9 @@ void VulkanContext::createSyncObjects() {
 bool VulkanContext::beginFrame() {
     check(vkWaitForFences(device_, 1, &inFlight_[currentFrame_], VK_TRUE, UINT64_MAX),
           "vkWaitForFences");
-    const VkResult acquired = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX,
-                                                     imageAvailable_[currentFrame_], VK_NULL_HANDLE,
-                                                     &currentImage_);
+    const VkResult acquired =
+        vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, imageAvailable_[currentFrame_],
+                              VK_NULL_HANDLE, &currentImage_);
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
         recreateSwapchain();
         return false;
@@ -372,16 +452,15 @@ void VulkanContext::transitionCurrentImage(const VkImageLayout oldLayout,
     barrier.srcStageMask = oldLayout == VK_IMAGE_LAYOUT_UNDEFINED
                                ? VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT
                                : VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    barrier.srcAccessMask = oldLayout == VK_IMAGE_LAYOUT_UNDEFINED
-                                ? 0
-                                : VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.srcAccessMask =
+        oldLayout == VK_IMAGE_LAYOUT_UNDEFINED ? 0 : VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.dstStageMask = newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
                                ? VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT
                                : VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    barrier.dstAccessMask = newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-                                ? 0
-                                : VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
-                                      VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask =
+        newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+            ? 0
+            : VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.oldLayout = oldLayout;
     barrier.newLayout = newLayout;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -461,4 +540,3 @@ void VulkanContext::waitIdle() const {
 }
 
 } // namespace vkexp
-

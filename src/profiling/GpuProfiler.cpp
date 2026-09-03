@@ -10,7 +10,7 @@
 namespace vkexp {
 
 GpuProfiler::Scope::Scope(GpuProfiler& profiler, const VkCommandBuffer commands,
-                          const ProfileMetric metric)
+                          const ProfileMetricId metric)
     : profiler_(&profiler), commands_(commands), metric_(metric) {
     profiler_->writeBegin(commands_, metric_);
 }
@@ -39,10 +39,9 @@ GpuProfiler::GpuProfiler(VulkanContext& vulkan) : device_(vulkan.device()) {
         return;
     }
 
-    timestampValidBits_ =
-        queueFamilies[vulkan.graphicsQueueFamily()].timestampValidBits;
-    supported_ = timestampValidBits_ > 0 &&
-                 properties.limits.timestampComputeAndGraphics == VK_TRUE;
+    timestampValidBits_ = queueFamilies[vulkan.graphicsQueueFamily()].timestampValidBits;
+    supported_ =
+        timestampValidBits_ > 0 && properties.limits.timestampComputeAndGraphics == VK_TRUE;
     if (!supported_) {
         return;
     }
@@ -61,38 +60,38 @@ GpuProfiler::~GpuProfiler() {
     }
 }
 
-void GpuProfiler::beginFrame(const VkCommandBuffer commands) {
+void GpuProfiler::beginFrame(const VkCommandBuffer commands, const ProfileMetricId frameMetric) {
     if (!supported_) {
         return;
     }
     resolvePendingFrame();
     currentWritten_.fill(false);
     vkCmdResetQueryPool(commands, queryPool_, 0, queryCount);
-    writeBegin(commands, ProfileMetric::Frame);
+    writeBegin(commands, frameMetric);
 }
 
-void GpuProfiler::endFrame(const VkCommandBuffer commands) {
+void GpuProfiler::endFrame(const VkCommandBuffer commands, const ProfileMetricId frameMetric) {
     if (!supported_) {
         return;
     }
-    writeEnd(commands, ProfileMetric::Frame);
+    writeEnd(commands, frameMetric);
     pendingWritten_ = currentWritten_;
     pendingFrame_ = true;
 }
 
-void GpuProfiler::writeBegin(const VkCommandBuffer commands, const ProfileMetric metric) {
-    if (!supported_) {
+void GpuProfiler::writeBegin(const VkCommandBuffer commands, const ProfileMetricId metric) {
+    if (!supported_ || metric >= maxProfileMetrics) {
         return;
     }
-    const std::uint32_t query = static_cast<std::uint32_t>(metricIndex(metric) * 2U);
+    const std::uint32_t query = metric * 2U;
     vkCmdWriteTimestamp2(commands, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, queryPool_, query);
 }
 
-void GpuProfiler::writeEnd(const VkCommandBuffer commands, const ProfileMetric metric) {
-    if (!supported_) {
+void GpuProfiler::writeEnd(const VkCommandBuffer commands, const ProfileMetricId metric) {
+    if (!supported_ || metric >= maxProfileMetrics) {
         return;
     }
-    const std::size_t index = metricIndex(metric);
+    const std::size_t index = metric;
     const std::uint32_t query = static_cast<std::uint32_t>(index * 2U + 1U);
     vkCmdWriteTimestamp2(commands, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, queryPool_, query);
     currentWritten_[index] = true;
@@ -103,20 +102,19 @@ void GpuProfiler::resolvePendingFrame() {
         return;
     }
 
-    const std::uint64_t timestampMask =
-        timestampValidBits_ >= 64U
-            ? std::numeric_limits<std::uint64_t>::max()
-            : (std::uint64_t{1} << timestampValidBits_) - 1U;
+    const std::uint64_t timestampMask = timestampValidBits_ >= 64U
+                                            ? std::numeric_limits<std::uint64_t>::max()
+                                            : (std::uint64_t{1} << timestampValidBits_) - 1U;
 
-    for (std::size_t index = 0; index < profileMetricCount; ++index) {
+    for (std::size_t index = 0; index < maxProfileMetrics; ++index) {
         if (!pendingWritten_[index]) {
             continue;
         }
         std::array<std::uint64_t, 2> timestamps{};
         const std::uint32_t firstQuery = static_cast<std::uint32_t>(index * 2U);
-        const VkResult result = vkGetQueryPoolResults(
-            device_, queryPool_, firstQuery, 2, sizeof(timestamps), timestamps.data(),
-            sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT);
+        const VkResult result =
+            vkGetQueryPoolResults(device_, queryPool_, firstQuery, 2, sizeof(timestamps),
+                                  timestamps.data(), sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT);
         if (result != VK_SUCCESS) {
             continue;
         }

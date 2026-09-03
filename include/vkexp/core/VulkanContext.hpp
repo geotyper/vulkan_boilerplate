@@ -35,9 +35,7 @@ public:
     [[nodiscard]] std::uint32_t imageCount() const {
         return static_cast<std::uint32_t>(swapchainImages_.size());
     }
-    [[nodiscard]] VkCommandBuffer commandBuffer() const {
-        return commandBuffers_[currentFrame_];
-    }
+    [[nodiscard]] VkCommandBuffer commandBuffer() const { return commandBuffers_[currentFrame_]; }
 
 private:
     // The experiment images are shared by graphics, compute, and ImGui.
@@ -52,7 +50,13 @@ private:
 
     [[nodiscard]] QueueFamilies findQueueFamilies(VkPhysicalDevice device) const;
     [[nodiscard]] bool deviceSuitable(VkPhysicalDevice device) const;
+    static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT type,
+        const VkDebugUtilsMessengerCallbackDataEXT* callbackData, void* userData);
+    void cleanup();
     void createInstance(bool enableValidation);
+    void createDebugMessenger();
+    void destroyDebugMessenger();
     void createSurface();
     void selectPhysicalDevice();
     void createDevice();
@@ -65,7 +69,9 @@ private:
 
     Window& window_;
     bool validationEnabled_{};
+    bool debugUtilsEnabled_{};
     VkInstance instance_{};
+    VkDebugUtilsMessengerEXT debugMessenger_{};
     VkSurfaceKHR surface_{};
     VkPhysicalDevice physicalDevice_{};
     VkDevice device_{};
@@ -91,4 +97,3 @@ private:
 };
 
 } // namespace vkexp
-
